@@ -19,6 +19,13 @@ from . import LizardCareConfigEntry
 from .coordinator import LizardCareData
 from .entity import LizardCareEntity
 from .profile import get_birth_date
+from .schedule import (
+    CareSchedule,
+    CareStatus,
+    calculate_care_status,
+    calculate_next_due,
+    get_care_schedule,
+)
 
 TIMESTAMP_DESCRIPTIONS = (
     SensorEntityDescription(
@@ -46,6 +53,45 @@ TIMESTAMP_DESCRIPTIONS = (
 AGE_DESCRIPTION = SensorEntityDescription(
     key="age",
     translation_key="age",
+)
+
+NEXT_DUE_DESCRIPTIONS = (
+    SensorEntityDescription(
+        key="next_feeding",
+        translation_key="next_feeding",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
+    SensorEntityDescription(
+        key="next_spot_clean",
+        translation_key="next_spot_clean",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
+    SensorEntityDescription(
+        key="next_full_clean",
+        translation_key="next_full_clean",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
+)
+
+STATUS_DESCRIPTIONS = (
+    SensorEntityDescription(
+        key="feeding_status",
+        translation_key="feeding_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=[status.value for status in CareStatus],
+    ),
+    SensorEntityDescription(
+        key="spot_clean_status",
+        translation_key="spot_clean_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=[status.value for status in CareStatus],
+    ),
+    SensorEntityDescription(
+        key="full_clean_status",
+        translation_key="full_clean_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=[status.value for status in CareStatus],
+    ),
 )
 
 
@@ -83,6 +129,42 @@ async def async_setup_entry(
                 lambda state: state.last_food_removed,
             ),
             LizardCareAgeSensor(entry),
+            LizardCareNextDueSensor(
+                entry,
+                NEXT_DUE_DESCRIPTIONS[0],
+                lambda state: state.last_fed,
+                lambda config: config.feeding_interval_days,
+            ),
+            LizardCareNextDueSensor(
+                entry,
+                NEXT_DUE_DESCRIPTIONS[1],
+                lambda state: state.last_spot_clean,
+                lambda config: config.spot_clean_interval_days,
+            ),
+            LizardCareNextDueSensor(
+                entry,
+                NEXT_DUE_DESCRIPTIONS[2],
+                lambda state: state.last_full_clean,
+                lambda config: config.full_clean_interval_days,
+            ),
+            LizardCareStatusSensor(
+                entry,
+                STATUS_DESCRIPTIONS[0],
+                lambda state: state.last_fed,
+                lambda config: config.feeding_interval_days,
+            ),
+            LizardCareStatusSensor(
+                entry,
+                STATUS_DESCRIPTIONS[1],
+                lambda state: state.last_spot_clean,
+                lambda config: config.spot_clean_interval_days,
+            ),
+            LizardCareStatusSensor(
+                entry,
+                STATUS_DESCRIPTIONS[2],
+                lambda state: state.last_full_clean,
+                lambda config: config.full_clean_interval_days,
+            ),
         ]
     )
 
@@ -143,6 +225,80 @@ class LizardCareAgeSensor(LizardCareEntity, SensorEntity):
     @callback
     def _async_date_changed(self, _now: datetime) -> None:
         """Refresh the age at local midnight."""
+        self.async_write_ha_state()
+
+
+class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):
+    """Show the next scheduled time for a care action."""
+
+    entity_description: SensorEntityDescription
+
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        description: SensorEntityDescription,
+        last_completed_fn: Callable[[LizardCareData], datetime | None],
+        interval_fn: Callable[[CareSchedule], int],
+    ) -> None:
+        """Initialize a next-due sensor."""
+        super().__init__(entry.runtime_data, entry.entry_id, description)
+        self._entry = entry
+        self._last_completed_fn = last_completed_fn
+        self._interval_fn = interval_fn
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the calculated next due timestamp."""
+        return calculate_next_due(
+            self._last_completed_fn(self._data),
+            self._interval_fn(get_care_schedule(self._entry)),
+        )
+
+
+class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
+    """Show whether a care action is due based on the local date."""
+
+    entity_description: SensorEntityDescription
+
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        description: SensorEntityDescription,
+        last_completed_fn: Callable[[LizardCareData], datetime | None],
+        interval_fn: Callable[[CareSchedule], int],
+    ) -> None:
+        """Initialize a care status sensor."""
+        super().__init__(entry.runtime_data, entry.entry_id, description)
+        self._entry = entry
+        self._last_completed_fn = last_completed_fn
+        self._interval_fn = interval_fn
+
+    async def async_added_to_hass(self) -> None:
+        """Update status when the local date changes."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass,
+                self._async_date_changed,
+                hour=0,
+                minute=0,
+                second=0,
+            )
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the calculated schedule status."""
+        next_due = calculate_next_due(
+            self._last_completed_fn(self._data),
+            self._interval_fn(get_care_schedule(self._entry)),
+        )
+        status = calculate_care_status(next_due)
+        return status.value if status is not None else None
+
+    @callback
+    def _async_date_changed(self, _now: datetime) -> None:
+        """Refresh status at local midnight."""
         self.async_write_ha_state()
 
 

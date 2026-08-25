@@ -29,22 +29,29 @@
     "step": {
       "init": {
         "title": "Edit pet details",
-        "description": "Update this pet's profile.",
+        "description": "Update this pet's profile and care intervals.",
         "data": {
           "pet_name": "Pet name",
           "species": "Species",
           "birth_date": "Birthday / hatch date",
-          "sex": "Sex"
+          "sex": "Sex",
+          "feeding_interval_days": "Feeding interval in days",
+          "spot_clean_interval_days": "Spot-clean interval in days",
+          "full_clean_interval_days": "Full-clean interval in days"
         },
         "data_description": {
           "birth_date": "Optional",
-          "sex": "Optional"
+          "sex": "Optional",
+          "feeding_interval_days": "Number of days between feedings",
+          "spot_clean_interval_days": "Number of days between spot cleans",
+          "full_clean_interval_days": "Number of days between full enclosure cleans"
         }
       }
     },
     "error": {
       "invalid_pet_name": "Enter a pet name",
-      "duplicate_pet_name": "A pet with this name is already configured"
+      "duplicate_pet_name": "A pet with this name is already configured",
+      "invalid_interval": "Enter a whole number greater than zero"
     }
   },
   "entity": {
@@ -63,6 +70,39 @@
       },
       "age": {
         "name": "Age"
+      },
+      "next_feeding": {
+        "name": "Next Feeding"
+      },
+      "next_spot_clean": {
+        "name": "Next Spot Clean"
+      },
+      "next_full_clean": {
+        "name": "Next Full Clean"
+      },
+      "feeding_status": {
+        "name": "Feeding Status",
+        "state": {
+          "not_due": "Not due",
+          "due_today": "Due today",
+          "overdue": "Overdue"
+        }
+      },
+      "spot_clean_status": {
+        "name": "Spot Clean Status",
+        "state": {
+          "not_due": "Not due",
+          "due_today": "Due today",
+          "overdue": "Overdue"
+        }
+      },
+      "full_clean_status": {
+        "name": "Full Clean Status",
+        "state": {
+          "not_due": "Not due",
+          "due_today": "Due today",
+          "overdue": "Overdue"
+        }
       }
     },
     "binary_sensor": {
