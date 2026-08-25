@@ -1,0 +1,10 @@
+{
+  "domain": "lizardcare",
+  "name": "Lizard Care",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/NolanBecker/ha-lizardcare",
+  "integration_type": "device",
+  "requirements": [],
+  "version": "0.1.0"
+}

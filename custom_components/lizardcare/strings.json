@@ -1,0 +1,27 @@
+{
+  "title": "Lizard Care",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a pet",
+        "description": "Create a Lizard Care profile for one pet.",
+        "data": {
+          "pet_name": "Pet name",
+          "species": "Species",
+          "birth_date": "Birthday / hatch date",
+          "sex": "Sex"
+        },
+        "data_description": {
+          "birth_date": "Optional",
+          "sex": "Optional"
+        }
+      }
+    },
+    "error": {
+      "invalid_pet_name": "Enter a pet name"
+    },
+    "abort": {
+      "already_configured": "A pet with this name is already configured"
+    }
+  }
+}
