@@ -23,5 +23,25 @@
     "abort": {
       "already_configured": "A pet with this name is already configured"
     }
+  },
+  "entity": {
+    "sensor": {
+      "last_fed": {
+        "name": "Last Fed"
+      }
+    },
+    "binary_sensor": {
+      "food_in_enclosure": {
+        "name": "Food in Enclosure"
+      }
+    },
+    "button": {
+      "feed": {
+        "name": "Feed"
+      },
+      "remove_food": {
+        "name": "Remove Food"
+      }
+    }
   }
 }

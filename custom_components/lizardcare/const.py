@@ -10,3 +10,8 @@ CONF_BIRTH_DATE = "birth_date"
 CONF_SEX = "sex"
 
 DEFAULT_SPECIES = "Gargoyle Gecko"
+
+STORAGE_VERSION = 1
+
+STATE_LAST_FED = "last_fed"
+STATE_FOOD_IN_ENCLOSURE = "food_in_enclosure"
