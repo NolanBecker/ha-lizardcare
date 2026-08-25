@@ -9,7 +9,12 @@ from .const import DOMAIN, MANUFACTURER
 from .coordinator import LizardCareData
 from .profile import get_pet_profile
 
-PLATFORMS = (Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON)
+PLATFORMS = (
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.DATETIME,
+)
 
 LizardCareConfigEntry = ConfigEntry[LizardCareData]
 

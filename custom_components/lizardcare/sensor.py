@@ -36,6 +36,11 @@ TIMESTAMP_DESCRIPTIONS = (
         translation_key="last_full_clean",
         device_class=SensorDeviceClass.TIMESTAMP,
     ),
+    SensorEntityDescription(
+        key="last_food_removed",
+        translation_key="last_food_removed",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
 )
 
 AGE_DESCRIPTION = SensorEntityDescription(
@@ -70,6 +75,12 @@ async def async_setup_entry(
                 entry.entry_id,
                 TIMESTAMP_DESCRIPTIONS[2],
                 lambda state: state.last_full_clean,
+            ),
+            LizardCareTimestampSensor(
+                data,
+                entry.entry_id,
+                TIMESTAMP_DESCRIPTIONS[3],
+                lambda state: state.last_food_removed,
             ),
             LizardCareAgeSensor(entry),
         ]

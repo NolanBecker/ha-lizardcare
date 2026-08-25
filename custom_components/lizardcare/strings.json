@@ -52,6 +52,9 @@
       "last_fed": {
         "name": "Last Fed"
       },
+      "last_food_removed": {
+        "name": "Last Food Removed"
+      },
       "last_spot_clean": {
         "name": "Last Spot Clean"
       },
@@ -79,6 +82,20 @@
       },
       "full_clean": {
         "name": "Full Clean"
+      }
+    },
+    "datetime": {
+      "set_last_fed": {
+        "name": "Set Last Fed"
+      },
+      "set_last_food_removed": {
+        "name": "Set Last Food Removed"
+      },
+      "set_last_spot_clean": {
+        "name": "Set Last Spot Clean"
+      },
+      "set_last_full_clean": {
+        "name": "Set Last Full Clean"
       }
     }
   }

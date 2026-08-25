@@ -15,6 +15,7 @@ from .const import (
     DOMAIN,
     STATE_FOOD_IN_ENCLOSURE,
     STATE_LAST_FED,
+    STATE_LAST_FOOD_REMOVED,
     STATE_LAST_FULL_CLEAN,
     STATE_LAST_SPOT_CLEAN,
     STORAGE_VERSION,
@@ -25,6 +26,7 @@ class CareStateStorage(TypedDict, total=False):
     """JSON-serializable persisted care state."""
 
     last_fed: str | None
+    last_food_removed: str | None
     food_in_enclosure: bool
     last_spot_clean: str | None
     last_full_clean: str | None
@@ -36,6 +38,7 @@ class LizardCareData:
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         """Initialize care state."""
         self.last_fed: datetime | None = None
+        self.last_food_removed: datetime | None = None
         self.food_in_enclosure = False
         self.last_spot_clean: datetime | None = None
         self.last_full_clean: datetime | None = None
@@ -52,6 +55,9 @@ class LizardCareData:
             return
 
         self.last_fed = self._parse_stored_datetime(stored.get(STATE_LAST_FED))
+        self.last_food_removed = self._parse_stored_datetime(
+            stored.get(STATE_LAST_FOOD_REMOVED)
+        )
         self.last_spot_clean = self._parse_stored_datetime(
             stored.get(STATE_LAST_SPOT_CLEAN)
         )
@@ -72,11 +78,9 @@ class LizardCareData:
             await self._async_save()
 
     async def async_remove_food(self) -> None:
-        """Mark food as removed, persisting only when state changes."""
+        """Record food removal and mark food as removed."""
         async with self._update_lock:
-            if not self.food_in_enclosure:
-                return
-
+            self.last_food_removed = dt_util.utcnow()
             self.food_in_enclosure = False
             self._async_notify_listeners()
             await self._async_save()
@@ -95,6 +99,22 @@ class LizardCareData:
             self._async_notify_listeners()
             await self._async_save()
 
+    async def async_set_last_fed(self, value: datetime) -> None:
+        """Correct the last-fed timestamp and reconcile enclosure state."""
+        await self._async_set_timestamp("last_fed", value)
+
+    async def async_set_last_food_removed(self, value: datetime) -> None:
+        """Correct food-removal time and reconcile enclosure state."""
+        await self._async_set_timestamp("last_food_removed", value)
+
+    async def async_set_last_spot_clean(self, value: datetime) -> None:
+        """Correct the last spot-clean timestamp."""
+        await self._async_set_timestamp("last_spot_clean", value)
+
+    async def async_set_last_full_clean(self, value: datetime) -> None:
+        """Correct the last full-clean timestamp."""
+        await self._async_set_timestamp("last_full_clean", value)
+
     @callback
     def async_add_listener(self, listener: Callable[[], None]) -> CALLBACK_TYPE:
         """Register a care-state listener."""
@@ -107,6 +127,19 @@ class LizardCareData:
         for listener in tuple(self._listeners):
             listener()
 
+    @callback
+    def reconcile_food_in_enclosure(self) -> bool:
+        """Reconcile enclosure state from feeding and removal timestamps."""
+        reconciled_state = self.last_fed is not None and (
+            self.last_food_removed is None
+            or self.last_fed > self.last_food_removed
+        )
+        if self.food_in_enclosure == reconciled_state:
+            return False
+
+        self.food_in_enclosure = reconciled_state
+        return True
+
     @staticmethod
     def _parse_stored_datetime(value: object) -> datetime | None:
         """Parse a stored timezone-aware datetime as UTC."""
@@ -118,12 +151,37 @@ class LizardCareData:
             return None
         return dt_util.as_utc(parsed)
 
+    async def _async_set_timestamp(self, attribute: str, value: datetime) -> None:
+        """Correct one care timestamp and persist the changed state."""
+        if value.tzinfo is None:
+            raise ValueError("Care timestamps must be timezone-aware")
+
+        value = dt_util.as_utc(value)
+        async with self._update_lock:
+            timestamp_changed = getattr(self, attribute) != value
+            if timestamp_changed:
+                setattr(self, attribute, value)
+
+            food_state_changed = False
+            if attribute in ("last_fed", "last_food_removed"):
+                food_state_changed = self.reconcile_food_in_enclosure()
+
+            if not timestamp_changed and not food_state_changed:
+                return
+            self._async_notify_listeners()
+            await self._async_save()
+
     async def _async_save(self) -> None:
         """Persist current care state."""
         await self._store.async_save(
             {
                 STATE_LAST_FED: (
                     self.last_fed.isoformat() if self.last_fed is not None else None
+                ),
+                STATE_LAST_FOOD_REMOVED: (
+                    self.last_food_removed.isoformat()
+                    if self.last_food_removed is not None
+                    else None
                 ),
                 STATE_FOOD_IN_ENCLOSURE: self.food_in_enclosure,
                 STATE_LAST_SPOT_CLEAN: (
