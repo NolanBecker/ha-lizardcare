@@ -28,6 +28,12 @@
     "sensor": {
       "last_fed": {
         "name": "Last Fed"
+      },
+      "last_spot_clean": {
+        "name": "Last Spot Clean"
+      },
+      "last_full_clean": {
+        "name": "Last Full Clean"
       }
     },
     "binary_sensor": {
@@ -41,6 +47,12 @@
       },
       "remove_food": {
         "name": "Remove Food"
+      },
+      "spot_clean": {
+        "name": "Spot Clean"
+      },
+      "full_clean": {
+        "name": "Full Clean"
       }
     }
   }

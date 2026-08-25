@@ -15,15 +15,19 @@ from .const import (
     DOMAIN,
     STATE_FOOD_IN_ENCLOSURE,
     STATE_LAST_FED,
+    STATE_LAST_FULL_CLEAN,
+    STATE_LAST_SPOT_CLEAN,
     STORAGE_VERSION,
 )
 
 
-class CareStateStorage(TypedDict):
+class CareStateStorage(TypedDict, total=False):
     """JSON-serializable persisted care state."""
 
     last_fed: str | None
     food_in_enclosure: bool
+    last_spot_clean: str | None
+    last_full_clean: str | None
 
 
 class LizardCareData:
@@ -33,6 +37,8 @@ class LizardCareData:
         """Initialize care state."""
         self.last_fed: datetime | None = None
         self.food_in_enclosure = False
+        self.last_spot_clean: datetime | None = None
+        self.last_full_clean: datetime | None = None
         self._listeners: set[Callable[[], None]] = set()
         self._update_lock = asyncio.Lock()
         self._store = Store[CareStateStorage](
@@ -45,11 +51,13 @@ class LizardCareData:
         if stored is None:
             return
 
-        stored_last_fed = stored.get(STATE_LAST_FED)
-        if isinstance(stored_last_fed, str):
-            parsed_last_fed = dt_util.parse_datetime(stored_last_fed)
-            if parsed_last_fed is not None and parsed_last_fed.tzinfo is not None:
-                self.last_fed = dt_util.as_utc(parsed_last_fed)
+        self.last_fed = self._parse_stored_datetime(stored.get(STATE_LAST_FED))
+        self.last_spot_clean = self._parse_stored_datetime(
+            stored.get(STATE_LAST_SPOT_CLEAN)
+        )
+        self.last_full_clean = self._parse_stored_datetime(
+            stored.get(STATE_LAST_FULL_CLEAN)
+        )
 
         stored_food_state = stored.get(STATE_FOOD_IN_ENCLOSURE)
         if isinstance(stored_food_state, bool):
@@ -73,6 +81,20 @@ class LizardCareData:
             self._async_notify_listeners()
             await self._async_save()
 
+    async def async_spot_clean(self) -> None:
+        """Record a spot clean."""
+        async with self._update_lock:
+            self.last_spot_clean = dt_util.utcnow()
+            self._async_notify_listeners()
+            await self._async_save()
+
+    async def async_full_clean(self) -> None:
+        """Record a full enclosure clean."""
+        async with self._update_lock:
+            self.last_full_clean = dt_util.utcnow()
+            self._async_notify_listeners()
+            await self._async_save()
+
     @callback
     def async_add_listener(self, listener: Callable[[], None]) -> CALLBACK_TYPE:
         """Register a care-state listener."""
@@ -85,6 +107,17 @@ class LizardCareData:
         for listener in tuple(self._listeners):
             listener()
 
+    @staticmethod
+    def _parse_stored_datetime(value: object) -> datetime | None:
+        """Parse a stored timezone-aware datetime as UTC."""
+        if not isinstance(value, str):
+            return None
+
+        parsed = dt_util.parse_datetime(value)
+        if parsed is None or parsed.tzinfo is None:
+            return None
+        return dt_util.as_utc(parsed)
+
     async def _async_save(self) -> None:
         """Persist current care state."""
         await self._store.async_save(
@@ -93,5 +126,15 @@ class LizardCareData:
                     self.last_fed.isoformat() if self.last_fed is not None else None
                 ),
                 STATE_FOOD_IN_ENCLOSURE: self.food_in_enclosure,
+                STATE_LAST_SPOT_CLEAN: (
+                    self.last_spot_clean.isoformat()
+                    if self.last_spot_clean is not None
+                    else None
+                ),
+                STATE_LAST_FULL_CLEAN: (
+                    self.last_full_clean.isoformat()
+                    if self.last_full_clean is not None
+                    else None
+                ),
             }
         )

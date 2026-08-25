@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 
 from homeassistant.components.sensor import (
@@ -16,10 +17,22 @@ from . import LizardCareConfigEntry
 from .coordinator import LizardCareData
 from .entity import LizardCareEntity
 
-LAST_FED_DESCRIPTION = SensorEntityDescription(
-    key="last_fed",
-    translation_key="last_fed",
-    device_class=SensorDeviceClass.TIMESTAMP,
+TIMESTAMP_DESCRIPTIONS = (
+    SensorEntityDescription(
+        key="last_fed",
+        translation_key="last_fed",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
+    SensorEntityDescription(
+        key="last_spot_clean",
+        translation_key="last_spot_clean",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
+    SensorEntityDescription(
+        key="last_full_clean",
+        translation_key="last_full_clean",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
 )
 
 
@@ -29,21 +42,48 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Lizard Care sensors."""
+    data = entry.runtime_data
     async_add_entities(
-        [LizardCareLastFedSensor(entry.runtime_data, entry.entry_id)]
+        [
+            LizardCareTimestampSensor(
+                data,
+                entry.entry_id,
+                TIMESTAMP_DESCRIPTIONS[0],
+                lambda state: state.last_fed,
+            ),
+            LizardCareTimestampSensor(
+                data,
+                entry.entry_id,
+                TIMESTAMP_DESCRIPTIONS[1],
+                lambda state: state.last_spot_clean,
+            ),
+            LizardCareTimestampSensor(
+                data,
+                entry.entry_id,
+                TIMESTAMP_DESCRIPTIONS[2],
+                lambda state: state.last_full_clean,
+            ),
+        ]
     )
 
 
-class LizardCareLastFedSensor(LizardCareEntity, SensorEntity):
-    """Show the pet's most recent feeding time."""
+class LizardCareTimestampSensor(LizardCareEntity, SensorEntity):
+    """Show the timestamp of a pet care action."""
 
-    entity_description = LAST_FED_DESCRIPTION
+    entity_description: SensorEntityDescription
 
-    def __init__(self, data: LizardCareData, entry_id: str) -> None:
-        """Initialize the last-fed sensor."""
-        super().__init__(data, entry_id, LAST_FED_DESCRIPTION)
+    def __init__(
+        self,
+        data: LizardCareData,
+        entry_id: str,
+        description: SensorEntityDescription,
+        value_fn: Callable[[LizardCareData], datetime | None],
+    ) -> None:
+        """Initialize a care timestamp sensor."""
+        super().__init__(data, entry_id, description)
+        self._value_fn = value_fn
 
     @property
     def native_value(self) -> datetime | None:
-        """Return the most recent feeding timestamp."""
-        return self._data.last_fed
+        """Return the most recent care-action timestamp."""
+        return self._value_fn(self._data)

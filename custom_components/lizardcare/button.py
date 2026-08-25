@@ -15,6 +15,8 @@ from .entity import LizardCareEntity
 BUTTON_DESCRIPTIONS = (
     ButtonEntityDescription(key="feed", translation_key="feed"),
     ButtonEntityDescription(key="remove_food", translation_key="remove_food"),
+    ButtonEntityDescription(key="spot_clean", translation_key="spot_clean"),
+    ButtonEntityDescription(key="full_clean", translation_key="full_clean"),
 )
 
 
@@ -39,12 +41,24 @@ async def async_setup_entry(
                 BUTTON_DESCRIPTIONS[1],
                 data.async_remove_food,
             ),
+            LizardCareButton(
+                data,
+                entry.entry_id,
+                BUTTON_DESCRIPTIONS[2],
+                data.async_spot_clean,
+            ),
+            LizardCareButton(
+                data,
+                entry.entry_id,
+                BUTTON_DESCRIPTIONS[3],
+                data.async_full_clean,
+            ),
         ]
     )
 
 
 class LizardCareButton(LizardCareEntity, ButtonEntity):
-    """A button that changes the pet's feeding state."""
+    """A button that records a pet care action."""
 
     entity_description: ButtonEntityDescription
 
@@ -55,7 +69,7 @@ class LizardCareButton(LizardCareEntity, ButtonEntity):
         description: ButtonEntityDescription,
         action: Callable[[], Awaitable[None]],
     ) -> None:
-        """Initialize a feeding button."""
+        """Initialize a care-action button."""
         super().__init__(data, entry_id, description)
         self._action = action
 

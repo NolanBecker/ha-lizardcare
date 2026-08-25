@@ -15,3 +15,5 @@ STORAGE_VERSION = 1
 
 STATE_LAST_FED = "last_fed"
 STATE_FOOD_IN_ENCLOSURE = "food_in_enclosure"
+STATE_LAST_SPOT_CLEAN = "last_spot_clean"
+STATE_LAST_FULL_CLEAN = "last_full_clean"
