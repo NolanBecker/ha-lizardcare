@@ -5,8 +5,9 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from .const import CONF_PET_NAME, CONF_SPECIES, DOMAIN, MANUFACTURER
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import LizardCareData
+from .profile import get_pet_profile
 
 PLATFORMS = (Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON)
 
@@ -20,14 +21,15 @@ async def async_setup_entry(
     data = LizardCareData(hass, entry.entry_id)
     await data.async_load()
     entry.runtime_data = data
+    profile = get_pet_profile(entry)
 
     device_registry = dr.async_get(hass)
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         manufacturer=MANUFACTURER,
-        model=entry.data[CONF_SPECIES],
-        name=entry.data[CONF_PET_NAME],
+        model=profile.species,
+        name=profile.pet_name,
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

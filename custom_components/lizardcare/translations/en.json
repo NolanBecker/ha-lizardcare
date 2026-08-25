@@ -18,10 +18,33 @@
       }
     },
     "error": {
-      "invalid_pet_name": "Enter a pet name"
+      "invalid_pet_name": "Enter a pet name",
+      "duplicate_pet_name": "A pet with this name is already configured"
     },
     "abort": {
       "already_configured": "A pet with this name is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Edit pet details",
+        "description": "Update this pet's profile.",
+        "data": {
+          "pet_name": "Pet name",
+          "species": "Species",
+          "birth_date": "Birthday / hatch date",
+          "sex": "Sex"
+        },
+        "data_description": {
+          "birth_date": "Optional",
+          "sex": "Optional"
+        }
+      }
+    },
+    "error": {
+      "invalid_pet_name": "Enter a pet name",
+      "duplicate_pet_name": "A pet with this name is already configured"
     }
   },
   "entity": {
@@ -34,6 +57,9 @@
       },
       "last_full_clean": {
         "name": "Last Full Clean"
+      },
+      "age": {
+        "name": "Age"
       }
     },
     "binary_sensor": {
