@@ -24,6 +24,7 @@ from .const import (
     CONF_FEEDING_REMINDERS,
     CONF_FEEDING_REMINDER_TIME,
     CONF_FOOD_REMOVAL_DELAY_HOURS,
+    CONF_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS,
     CONF_FOOD_REMOVAL_REMINDER,
     CONF_FOOD_REMOVAL_REMINDER_BASIS,
     CONF_FULL_CLEAN_REMINDERS,
@@ -37,6 +38,7 @@ from .const import (
     DEFAULT_FEEDING_REMINDERS,
     DEFAULT_FEEDING_REMINDER_TIME,
     DEFAULT_FOOD_REMOVAL_DELAY_HOURS,
+    DEFAULT_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS,
     DEFAULT_FOOD_REMOVAL_REMINDER,
     DEFAULT_FOOD_REMOVAL_REMINDER_BASIS,
     DEFAULT_FULL_CLEAN_REMINDERS,
@@ -66,6 +68,8 @@ class NotificationStateStorage(TypedDict, total=False):
 
     daily_reminders: dict[str, str]
     food_removal_feeding: str | None
+    food_removal_initial_sent_at: str | None
+    food_removal_last_sent_at: str | None
     last_overdue_sent: dict[str, str]
 
 
@@ -82,6 +86,7 @@ class NotificationSettings:
     cleaning_reminder_time: time
     food_removal_delay_hours: int
     food_removal_reminder_basis: str
+    food_removal_overdue_repeat_hours: int
     feeding_overdue_repeat_hours: int
     spot_clean_overdue_repeat_hours: int
     full_clean_overdue_repeat_hours: int
@@ -168,6 +173,11 @@ def get_notification_settings(entry: ConfigEntry) -> NotificationSettings:
         ),
         food_removal_delay_hours=delay_hours,
         food_removal_reminder_basis=basis,
+        food_removal_overdue_repeat_hours=_nonnegative_int_option(
+            entry,
+            CONF_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS,
+            DEFAULT_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS,
+        ),
         feeding_overdue_repeat_hours=_nonnegative_int_option(
             entry,
             CONF_FEEDING_OVERDUE_REPEAT_HOURS,
@@ -230,6 +240,30 @@ def calculate_food_removal_reminder(
     return actual_due if actual_due > now else None
 
 
+def calculate_stale_food_removal_anchor(
+    last_fed: datetime,
+    settings: NotificationSettings,
+) -> datetime:
+    """Return the most recent valid due time for a stale removal reminder."""
+    actual_due = last_fed + timedelta(hours=settings.food_removal_delay_hours)
+    if settings.food_removal_reminder_basis == FOOD_REMOVAL_BASIS_ACTUAL:
+        return dt_util.as_utc(actual_due)
+
+    local_fed = dt_util.as_local(last_fed)
+    anchor_date = local_fed.date()
+    if local_fed.timetz().replace(tzinfo=None) < settings.feeding_reminder_time:
+        anchor_date -= timedelta(days=1)
+    local_anchor = datetime.combine(
+        anchor_date,
+        settings.feeding_reminder_time,
+        tzinfo=dt_util.get_default_time_zone(),
+    )
+    scheduled_due = local_anchor + timedelta(
+        hours=settings.food_removal_delay_hours
+    )
+    return max(dt_util.as_utc(actual_due), dt_util.as_utc(scheduled_due))
+
+
 class LizardCareNotificationManager:
     """Schedule, send, and deduplicate notifications for one pet."""
 
@@ -245,6 +279,8 @@ class LizardCareNotificationManager:
         self._care_data = care_data
         self._daily_reminders: dict[str, str] = {}
         self._food_removal_feeding: str | None = None
+        self._food_removal_initial_sent_at: datetime | None = None
+        self._food_removal_last_sent_at: datetime | None = None
         self._last_overdue_sent: dict[str, datetime] = {}
         self._feeding_daily_unsub: CALLBACK_TYPE | None = None
         self._cleaning_daily_unsub: CALLBACK_TYPE | None = None
@@ -271,6 +307,12 @@ class LizardCareNotificationManager:
             food_feeding = stored.get("food_removal_feeding")
             if isinstance(food_feeding, str):
                 self._food_removal_feeding = food_feeding
+            self._food_removal_initial_sent_at = self._stored_datetime(
+                stored.get("food_removal_initial_sent_at")
+            )
+            self._food_removal_last_sent_at = self._stored_datetime(
+                stored.get("food_removal_last_sent_at")
+            )
             overdue_sent = stored.get("last_overdue_sent")
             if isinstance(overdue_sent, dict):
                 for key, value in overdue_sent.items():
@@ -363,6 +405,19 @@ class LizardCareNotificationManager:
             calculate_next_due(last_done, interval), dt_util.now().date()
         ) is CareStatus.OVERDUE
 
+    @staticmethod
+    def _stored_datetime(value: object) -> datetime | None:
+        """Parse a persisted timezone-aware notification timestamp."""
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return dt_util.as_utc(parsed)
+
     @callback
     def _schedule_all_overdue_repeats(self) -> None:
         """Reconcile repeat callbacks with current care state and settings."""
@@ -438,7 +493,7 @@ class LizardCareNotificationManager:
 
     @callback
     def _schedule_food_removal(self) -> None:
-        """Schedule or cancel the reminder for the current feeding event."""
+        """Schedule the initial or repeating reminder for the current feed."""
         if self._food_unsub is not None:
             self._food_unsub()
             self._food_unsub = None
@@ -453,22 +508,61 @@ class LizardCareNotificationManager:
             or not settings.food_removal_reminder
             or not self._care_data.food_in_enclosure
             or last_fed is None
-            or self._food_removal_feeding == last_fed.isoformat()
         ):
             return
 
         now = dt_util.utcnow()
+        feeding_event = last_fed.isoformat()
+        if self._food_removal_feeding == feeding_event:
+            repeat_hours = settings.food_removal_overdue_repeat_hours
+            if repeat_hours == 0:
+                return
+            last_sent = (
+                self._food_removal_last_sent_at
+                or self._food_removal_initial_sent_at
+            )
+            # Older installations tracked the feeding event but not send times.
+            # Start their first repeat one full interval after this setup pass.
+            due = (
+                now + timedelta(hours=repeat_hours)
+                if last_sent is None
+                else calculate_next_overdue_repeat(
+                    last_sent, repeat_hours, now
+                )
+            )
+            if due is not None:
+                self._food_unsub = async_track_point_in_utc_time(
+                    self._hass,
+                    partial(
+                        self._async_food_removal_repeat,
+                        feeding_event,
+                    ),
+                    due,
+                )
+            return
+
         due = calculate_food_removal_reminder(last_fed, settings, now)
         if due is None:
-            return
+            repeat_hours = settings.food_removal_overdue_repeat_hours
+            if repeat_hours == 0:
+                return
+            due = calculate_next_overdue_repeat(
+                calculate_stale_food_removal_anchor(last_fed, settings),
+                repeat_hours,
+                now,
+            )
+            if due is None:
+                return
         if due <= now:
             self._food_task = self._hass.async_create_task(
-                self._async_food_removal_reminder(due),
+                self._async_food_removal_reminder(feeding_event, due),
                 f"{DOMAIN} food removal reminder",
             )
         else:
             self._food_unsub = async_track_point_in_utc_time(
-                self._hass, self._async_food_removal_reminder, due
+                self._hass,
+                partial(self._async_food_removal_reminder, feeding_event),
+                due,
             )
 
     async def _async_feeding_reminder(self, now: datetime) -> None:
@@ -617,7 +711,9 @@ class LizardCareNotificationManager:
             await self._async_save()
         self._schedule_overdue_repeat(key)
 
-    async def _async_food_removal_reminder(self, _now: datetime) -> None:
+    async def _async_food_removal_reminder(
+        self, feeding_event: str, _now: datetime
+    ) -> None:
         """Send one reminder for the current feeding if food remains present."""
         self._food_unsub = None
         self._food_task = None
@@ -628,6 +724,7 @@ class LizardCareNotificationManager:
             or not settings.food_removal_reminder
             or not self._care_data.food_in_enclosure
             or last_fed is None
+            or last_fed.isoformat() != feeding_event
             or self._food_removal_feeding == last_fed.isoformat()
         ):
             return
@@ -639,8 +736,54 @@ class LizardCareNotificationManager:
             "Remember to remove the food when appropriate."
         )
         if await self._async_send(settings.recipients, title, message):
+            sent_at = dt_util.utcnow()
             self._food_removal_feeding = last_fed.isoformat()
+            self._food_removal_initial_sent_at = sent_at
+            self._food_removal_last_sent_at = sent_at
             await self._async_save()
+            self._schedule_food_removal()
+
+    async def _async_food_removal_repeat(
+        self, feeding_event: str, _now: datetime
+    ) -> None:
+        """Repeat a removal reminder while the same feeding remains present."""
+        self._food_unsub = None
+        settings = get_notification_settings(self._entry)
+        last_fed = self._care_data.last_fed
+        if (
+            not settings.recipients
+            or not settings.food_removal_reminder
+            or settings.food_removal_overdue_repeat_hours == 0
+            or not self._care_data.food_in_enclosure
+            or last_fed is None
+            or last_fed.isoformat() != feeding_event
+            or self._food_removal_feeding != last_fed.isoformat()
+        ):
+            return
+
+        last_sent = (
+            self._food_removal_last_sent_at
+            or self._food_removal_initial_sent_at
+        )
+        actual_now = dt_util.utcnow()
+        if last_sent is not None and (
+            last_sent
+            + timedelta(hours=settings.food_removal_overdue_repeat_hours)
+            > actual_now
+        ):
+            self._schedule_food_removal()
+            return
+
+        profile = get_pet_profile(self._entry)
+        title = f"{profile.pet_name}'s food is still in the enclosure"
+        message = (
+            f"{profile.pet_name} was fed on {self._friendly_datetime(last_fed)}. "
+            "Remember to remove the food when appropriate."
+        )
+        if await self._async_send(settings.recipients, title, message):
+            self._food_removal_last_sent_at = dt_util.utcnow()
+            await self._async_save()
+        self._schedule_food_removal()
 
     async def _async_send(
         self, recipients: tuple[str, ...], title: str, message: str
@@ -677,6 +820,16 @@ class LizardCareNotificationManager:
             {
                 "daily_reminders": self._daily_reminders,
                 "food_removal_feeding": self._food_removal_feeding,
+                "food_removal_initial_sent_at": (
+                    self._food_removal_initial_sent_at.isoformat()
+                    if self._food_removal_initial_sent_at is not None
+                    else None
+                ),
+                "food_removal_last_sent_at": (
+                    self._food_removal_last_sent_at.isoformat()
+                    if self._food_removal_last_sent_at is not None
+                    else None
+                ),
                 "last_overdue_sent": {
                     key: value.isoformat()
                     for key, value in self._last_overdue_sent.items()

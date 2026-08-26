@@ -23,6 +23,7 @@ from .const import (
     CONF_FEEDING_REMINDERS,
     CONF_FEEDING_REMINDER_TIME,
     CONF_FOOD_REMOVAL_DELAY_HOURS,
+    CONF_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS,
     CONF_FOOD_REMOVAL_REMINDER,
     CONF_FOOD_REMOVAL_REMINDER_BASIS,
     CONF_FULL_CLEAN_INTERVAL_DAYS,
@@ -140,6 +141,9 @@ def _options_schema() -> vol.Schema:
             vol.Required(
                 CONF_FULL_CLEAN_OVERDUE_REPEAT_HOURS
             ): _nonnegative_integer_selector(),
+            vol.Required(
+                CONF_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS
+            ): _nonnegative_integer_selector(),
         }
     )
 
@@ -241,6 +245,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_FEEDING_OVERDUE_REPEAT_HOURS,
                     CONF_SPOT_CLEAN_OVERDUE_REPEAT_HOURS,
                     CONF_FULL_CLEAN_OVERDUE_REPEAT_HOURS,
+                    CONF_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS,
                 ):
                     value = _as_nonnegative_int(user_input[key])
                     if value is None:
@@ -325,6 +330,9 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             ),
             CONF_FULL_CLEAN_OVERDUE_REPEAT_HOURS: (
                 notification_settings.full_clean_overdue_repeat_hours
+            ),
+            CONF_FOOD_REMOVAL_OVERDUE_REPEAT_HOURS: (
+                notification_settings.food_removal_overdue_repeat_hours
             ),
         }
         return self.async_show_form(

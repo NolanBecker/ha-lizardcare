@@ -50,6 +50,7 @@
           "cleaning_reminder_time": "Cleaning reminder time",
           "food_removal_delay_hours": "Food-removal delay in hours",
           "food_removal_reminder_basis": "Food-removal reminder basis",
+          "food_removal_overdue_repeat_hours": "Food removal overdue repeat interval",
           "feeding_overdue_repeat_hours": "Feeding overdue repeat interval",
           "spot_clean_overdue_repeat_hours": "Spot-clean overdue repeat interval",
           "full_clean_overdue_repeat_hours": "Full-clean overdue repeat interval"
@@ -65,11 +66,12 @@
           "feeding_reminders": "Send due and overdue feeding reminders",
           "spot_clean_reminders": "Send due and overdue spot-clean reminders",
           "full_clean_reminders": "Send due and overdue full-clean reminders",
-          "food_removal_reminder": "Remind once per feeding if food remains in the enclosure",
+          "food_removal_reminder": "Send food-removal reminders while food remains in the enclosure",
           "feeding_reminder_time": "Local time for daily feeding reminders",
           "cleaning_reminder_time": "Local time for daily cleaning reminders",
           "food_removal_delay_hours": "Hours after the reminder anchor before checking whether food remains",
           "food_removal_reminder_basis": "Choose whether the delay starts at the actual feeding time or scheduled feeding reminder time",
+          "food_removal_overdue_repeat_hours": "Hours between food-removal reminders while food remains present; enter 0 to disable repeats",
           "feeding_overdue_repeat_hours": "Hours between overdue feeding reminders; enter 0 to disable repeats",
           "spot_clean_overdue_repeat_hours": "Hours between overdue spot-clean reminders; enter 0 to disable repeats",
           "full_clean_overdue_repeat_hours": "Hours between overdue full-clean reminders; enter 0 to disable repeats"
