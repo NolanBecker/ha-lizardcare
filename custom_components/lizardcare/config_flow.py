@@ -28,6 +28,7 @@ from .const import (
     CONF_FULL_CLEAN_INTERVAL_DAYS,
     CONF_FULL_CLEAN_OVERDUE_REPEAT_HOURS,
     CONF_FULL_CLEAN_REMINDERS,
+    CONF_NOTES,
     CONF_NORMALIZED_PET_NAME,
     CONF_NOTIFICATION_RECIPIENTS,
     CONF_PET_NAME,
@@ -59,6 +60,9 @@ def _profile_schema(*, species_default: str | None = None) -> vol.Schema:
             species_key: selector.TextSelector(),
             vol.Optional(CONF_BIRTH_DATE): selector.DateSelector(),
             vol.Optional(CONF_SEX): selector.TextSelector(),
+            vol.Optional(CONF_NOTES): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True)
+            ),
         }
     )
 
@@ -250,6 +254,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_SPECIES: user_input[CONF_SPECIES].strip(),
                     CONF_BIRTH_DATE: user_input.get(CONF_BIRTH_DATE),
                     CONF_SEX: user_input.get(CONF_SEX),
+                    CONF_NOTES: user_input.get(CONF_NOTES),
                     CONF_NOTIFICATION_RECIPIENTS: user_input.get(
                         CONF_NOTIFICATION_RECIPIENTS, []
                     ),
@@ -287,6 +292,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             CONF_SPECIES: profile.species,
             CONF_BIRTH_DATE: profile.birth_date,
             CONF_SEX: profile.sex,
+            CONF_NOTES: profile.notes,
             CONF_FEEDING_INTERVAL_DAYS: schedule.feeding_interval_days,
             CONF_SPOT_CLEAN_INTERVAL_DAYS: schedule.spot_clean_interval_days,
             CONF_FULL_CLEAN_INTERVAL_DAYS: schedule.full_clean_interval_days,

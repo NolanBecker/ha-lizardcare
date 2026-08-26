@@ -71,7 +71,14 @@ PROFILE_DESCRIPTIONS = (
         translation_key="sex",
         icon="mdi:gender-male-female",
     ),
+    SensorEntityDescription(
+        key="notes",
+        translation_key="notes",
+        icon="mdi:note-text-outline",
+    ),
 )
+
+MAX_SENSOR_STATE_LENGTH = 255
 
 NEXT_DUE_DESCRIPTIONS = (
     SensorEntityDescription(
@@ -163,6 +170,7 @@ async def async_setup_entry(
                 PROFILE_DESCRIPTIONS[2],
                 lambda config_entry: get_pet_profile(config_entry).sex,
             ),
+            LizardCareNotesSensor(entry),
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[0],
@@ -282,6 +290,39 @@ class LizardCareProfileSensor(LizardCareEntity, SensorEntity):
     def native_value(self) -> str | date | None:
         """Return the current resolved profile value."""
         return self._value_fn(self._entry)
+
+
+class LizardCareNotesSensor(LizardCareEntity, SensorEntity):
+    """Expose profile notes without exceeding Home Assistant state limits."""
+
+    entity_description = PROFILE_DESCRIPTIONS[3]
+
+    def __init__(self, entry: LizardCareConfigEntry) -> None:
+        """Initialize the notes sensor."""
+        super().__init__(
+            entry.runtime_data,
+            entry.entry_id,
+            PROFILE_DESCRIPTIONS[3],
+        )
+        self._entry = entry
+
+    @property
+    def native_value(self) -> str | None:
+        """Return notes directly when they fit in an entity state."""
+        notes = get_pet_profile(self._entry).notes
+        if notes is None:
+            return None
+        if len(notes) <= MAX_SENSOR_STATE_LENGTH:
+            return notes
+        return f"{notes[: MAX_SENSOR_STATE_LENGTH - 3]}..."
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Expose long notes safely as an attribute."""
+        notes = get_pet_profile(self._entry).notes
+        if notes is None:
+            return None
+        return {"notes": notes}
 
 
 class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):

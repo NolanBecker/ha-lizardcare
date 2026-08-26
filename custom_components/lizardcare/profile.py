@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CONF_BIRTH_DATE,
+    CONF_NOTES,
     CONF_PET_NAME,
     CONF_SEX,
     CONF_SPECIES,
@@ -26,6 +27,7 @@ class PetProfile:
     species: str
     birth_date: str | None
     sex: str | None
+    notes: str | None
 
 
 def _entry_value(entry: ConfigEntry, key: str) -> str | None:
@@ -44,6 +46,7 @@ def get_pet_profile(entry: ConfigEntry) -> PetProfile:
         species=_entry_value(entry, CONF_SPECIES) or "",
         birth_date=_entry_value(entry, CONF_BIRTH_DATE),
         sex=_entry_value(entry, CONF_SEX),
+        notes=_entry_value(entry, CONF_NOTES),
     )
 
 

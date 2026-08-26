@@ -8,6 +8,7 @@ CONF_NORMALIZED_PET_NAME = "normalized_pet_name"
 CONF_SPECIES = "species"
 CONF_BIRTH_DATE = "birth_date"
 CONF_SEX = "sex"
+CONF_NOTES = "notes"
 
 DEFAULT_SPECIES = "Gargoyle Gecko"
 
