@@ -96,6 +96,15 @@
       "age": {
         "name": "Age"
       },
+      "species": {
+        "name": "Species"
+      },
+      "birthday": {
+        "name": "Birthday / Hatch Date"
+      },
+      "sex": {
+        "name": "Sex"
+      },
       "next_feeding": {
         "name": "Next Feeding"
       },

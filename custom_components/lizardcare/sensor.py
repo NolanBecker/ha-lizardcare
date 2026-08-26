@@ -18,7 +18,7 @@ from homeassistant.util import dt as dt_util
 from . import LizardCareConfigEntry
 from .coordinator import LizardCareData
 from .entity import LizardCareEntity
-from .profile import get_birth_date
+from .profile import get_birth_date, get_pet_profile
 from .schedule import (
     CareSchedule,
     CareStatus,
@@ -53,6 +53,24 @@ TIMESTAMP_DESCRIPTIONS = (
 AGE_DESCRIPTION = SensorEntityDescription(
     key="age",
     translation_key="age",
+)
+
+PROFILE_DESCRIPTIONS = (
+    SensorEntityDescription(
+        key="species",
+        translation_key="species",
+        icon="mdi:lizard",
+    ),
+    SensorEntityDescription(
+        key="birthday",
+        translation_key="birthday",
+        device_class=SensorDeviceClass.DATE,
+    ),
+    SensorEntityDescription(
+        key="sex",
+        translation_key="sex",
+        icon="mdi:gender-male-female",
+    ),
 )
 
 NEXT_DUE_DESCRIPTIONS = (
@@ -129,6 +147,22 @@ async def async_setup_entry(
                 lambda state: state.last_food_removed,
             ),
             LizardCareAgeSensor(entry),
+            LizardCareProfileSensor(
+                entry,
+                PROFILE_DESCRIPTIONS[0],
+                lambda config_entry: get_pet_profile(config_entry).species
+                or None,
+            ),
+            LizardCareProfileSensor(
+                entry,
+                PROFILE_DESCRIPTIONS[1],
+                get_birth_date,
+            ),
+            LizardCareProfileSensor(
+                entry,
+                PROFILE_DESCRIPTIONS[2],
+                lambda config_entry: get_pet_profile(config_entry).sex,
+            ),
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[0],
@@ -226,6 +260,28 @@ class LizardCareAgeSensor(LizardCareEntity, SensorEntity):
     def _async_date_changed(self, _now: datetime) -> None:
         """Refresh the age at local midnight."""
         self.async_write_ha_state()
+
+
+class LizardCareProfileSensor(LizardCareEntity, SensorEntity):
+    """Expose a read-only value from the pet profile."""
+
+    entity_description: SensorEntityDescription
+
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        description: SensorEntityDescription,
+        value_fn: Callable[[LizardCareConfigEntry], str | date | None],
+    ) -> None:
+        """Initialize a profile sensor."""
+        super().__init__(entry.runtime_data, entry.entry_id, description)
+        self._entry = entry
+        self._value_fn = value_fn
+
+    @property
+    def native_value(self) -> str | date | None:
+        """Return the current resolved profile value."""
+        return self._value_fn(self._entry)
 
 
 class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):
