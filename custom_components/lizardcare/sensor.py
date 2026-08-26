@@ -3,21 +3,33 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_time_change
-from homeassistant.helpers.event import async_track_point_in_utc_time
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.event import (
+    async_track_point_in_utc_time,
+    async_track_time_change,
+    async_track_time_interval,
+)
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import LizardCareConfigEntry
 from .coordinator import LizardCareData
+from .derived import (
+    CareActivity,
+    DueDayCounts,
+    LastCareActivity,
+    calculate_due_day_counts,
+    find_last_care_activity,
+    format_past_relative_time,
+    format_scheduled_relative_time,
+)
 from .entity import LizardCareEntity
 from .food_removal import calculate_food_removal_timing
 from .notifications import get_notification_settings
@@ -132,6 +144,83 @@ CARE_STATUS_DESCRIPTION = SensorEntityDescription(
     options=[status.value for status in OverallCareStatus],
 )
 
+LAST_CARE_ACTIVITY_DESCRIPTION = SensorEntityDescription(
+    key="last_care_activity",
+    translation_key="last_care_activity",
+    device_class=SensorDeviceClass.ENUM,
+    options=[activity.value for activity in CareActivity],
+)
+
+
+class LizardCareSensorTimeUpdater:
+    """Share minute and local-midnight updates across sensor entities."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the time updater."""
+        self._hass = hass
+        self._minute_listeners: set[Callable[[], None]] = set()
+        self._daily_listeners: set[Callable[[], None]] = set()
+        self._minute_unsub: CALLBACK_TYPE | None = None
+        self._daily_unsub: CALLBACK_TYPE | None = None
+
+    @callback
+    def async_add_minute_listener(
+        self, listener: Callable[[], None]
+    ) -> CALLBACK_TYPE:
+        """Add a listener to the shared minute update."""
+        self._minute_listeners.add(listener)
+        if self._minute_unsub is None:
+            self._minute_unsub = async_track_time_interval(
+                self._hass,
+                self._async_minute_changed,
+                timedelta(minutes=1),
+            )
+        return lambda: self._remove_minute_listener(listener)
+
+    @callback
+    def async_add_daily_listener(
+        self, listener: Callable[[], None]
+    ) -> CALLBACK_TYPE:
+        """Add a listener to the shared local-midnight update."""
+        self._daily_listeners.add(listener)
+        if self._daily_unsub is None:
+            self._daily_unsub = async_track_time_change(
+                self._hass,
+                self._async_day_changed,
+                hour=0,
+                minute=0,
+                second=0,
+            )
+        return lambda: self._remove_daily_listener(listener)
+
+    @callback
+    def _remove_minute_listener(self, listener: Callable[[], None]) -> None:
+        """Remove a minute listener and stop the unused timer."""
+        self._minute_listeners.discard(listener)
+        if not self._minute_listeners and self._minute_unsub is not None:
+            self._minute_unsub()
+            self._minute_unsub = None
+
+    @callback
+    def _remove_daily_listener(self, listener: Callable[[], None]) -> None:
+        """Remove a daily listener and stop the unused timer."""
+        self._daily_listeners.discard(listener)
+        if not self._daily_listeners and self._daily_unsub is not None:
+            self._daily_unsub()
+            self._daily_unsub = None
+
+    @callback
+    def _async_minute_changed(self, _now: datetime) -> None:
+        """Notify entities with minute-level relative text."""
+        for listener in tuple(self._minute_listeners):
+            listener()
+
+    @callback
+    def _async_day_changed(self, _now: datetime) -> None:
+        """Notify entities using local-calendar calculations."""
+        for listener in tuple(self._daily_listeners):
+            listener()
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -140,6 +229,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Lizard Care sensors."""
     data = entry.runtime_data
+    time_updater = LizardCareSensorTimeUpdater(hass)
     async_add_entities(
         [
             LizardCareTimestampSensor(
@@ -147,26 +237,30 @@ async def async_setup_entry(
                 entry.entry_id,
                 TIMESTAMP_DESCRIPTIONS[0],
                 lambda state: state.last_fed,
+                time_updater,
             ),
             LizardCareTimestampSensor(
                 data,
                 entry.entry_id,
                 TIMESTAMP_DESCRIPTIONS[1],
                 lambda state: state.last_spot_clean,
+                time_updater,
             ),
             LizardCareTimestampSensor(
                 data,
                 entry.entry_id,
                 TIMESTAMP_DESCRIPTIONS[2],
                 lambda state: state.last_full_clean,
+                time_updater,
             ),
             LizardCareTimestampSensor(
                 data,
                 entry.entry_id,
                 TIMESTAMP_DESCRIPTIONS[3],
                 lambda state: state.last_food_removed,
+                time_updater,
             ),
-            LizardCareAgeSensor(entry),
+            LizardCareAgeSensor(entry, time_updater),
             LizardCareProfileSensor(
                 entry,
                 PROFILE_DESCRIPTIONS[0],
@@ -189,38 +283,45 @@ async def async_setup_entry(
                 NEXT_DUE_DESCRIPTIONS[0],
                 lambda state: state.last_fed,
                 lambda config: config.feeding_interval_days,
+                time_updater,
             ),
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[1],
                 lambda state: state.last_spot_clean,
                 lambda config: config.spot_clean_interval_days,
+                time_updater,
             ),
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[2],
                 lambda state: state.last_full_clean,
                 lambda config: config.full_clean_interval_days,
+                time_updater,
             ),
             LizardCareStatusSensor(
                 entry,
                 STATUS_DESCRIPTIONS[0],
                 lambda state: state.last_fed,
                 lambda config: config.feeding_interval_days,
+                time_updater,
             ),
             LizardCareStatusSensor(
                 entry,
                 STATUS_DESCRIPTIONS[1],
                 lambda state: state.last_spot_clean,
                 lambda config: config.spot_clean_interval_days,
+                time_updater,
             ),
             LizardCareStatusSensor(
                 entry,
                 STATUS_DESCRIPTIONS[2],
                 lambda state: state.last_full_clean,
                 lambda config: config.full_clean_interval_days,
+                time_updater,
             ),
-            LizardCareOverallCareStatusSensor(entry),
+            LizardCareOverallCareStatusSensor(entry, time_updater),
+            LizardCareLastCareActivitySensor(entry, time_updater),
         ]
     )
 
@@ -236,15 +337,34 @@ class LizardCareTimestampSensor(LizardCareEntity, SensorEntity):
         entry_id: str,
         description: SensorEntityDescription,
         value_fn: Callable[[LizardCareData], datetime | None],
+        time_updater: LizardCareSensorTimeUpdater,
     ) -> None:
         """Initialize a care timestamp sensor."""
         super().__init__(data, entry_id, description)
         self._value_fn = value_fn
+        self._time_updater = time_updater
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to shared relative-time updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._time_updater.async_add_minute_listener(
+                self.async_write_ha_state
+            )
+        )
 
     @property
     def native_value(self) -> datetime | None:
         """Return the most recent care-action timestamp."""
         return self._value_fn(self._data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Return a friendly age for the care timestamp."""
+        value = self._value_fn(self._data)
+        if value is None:
+            return None
+        return {"relative_time": format_past_relative_time(value)}
 
 
 class LizardCareAgeSensor(LizardCareEntity, SensorEntity):
@@ -252,21 +372,22 @@ class LizardCareAgeSensor(LizardCareEntity, SensorEntity):
 
     entity_description = AGE_DESCRIPTION
 
-    def __init__(self, entry: LizardCareConfigEntry) -> None:
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        time_updater: LizardCareSensorTimeUpdater,
+    ) -> None:
         """Initialize the age sensor."""
         super().__init__(entry.runtime_data, entry.entry_id, AGE_DESCRIPTION)
         self._entry = entry
+        self._time_updater = time_updater
 
     async def async_added_to_hass(self) -> None:
         """Update the age when the local date changes."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            async_track_time_change(
-                self.hass,
-                self._async_date_changed,
-                hour=0,
-                minute=0,
-                second=0,
+            self._time_updater.async_add_daily_listener(
+                self.async_write_ha_state
             )
         )
 
@@ -277,11 +398,6 @@ class LizardCareAgeSensor(LizardCareEntity, SensorEntity):
         if birth_date is None:
             return None
         return _format_age(birth_date, dt_util.now().date())
-
-    @callback
-    def _async_date_changed(self, _now: datetime) -> None:
-        """Refresh the age at local midnight."""
-        self.async_write_ha_state()
 
 
 class LizardCareProfileSensor(LizardCareEntity, SensorEntity):
@@ -350,12 +466,23 @@ class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):
         description: SensorEntityDescription,
         last_completed_fn: Callable[[LizardCareData], datetime | None],
         interval_fn: Callable[[CareSchedule], int],
+        time_updater: LizardCareSensorTimeUpdater,
     ) -> None:
         """Initialize a next-due sensor."""
         super().__init__(entry.runtime_data, entry.entry_id, description)
         self._entry = entry
         self._last_completed_fn = last_completed_fn
         self._interval_fn = interval_fn
+        self._time_updater = time_updater
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to shared local-calendar updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._time_updater.async_add_daily_listener(
+                self.async_write_ha_state
+            )
+        )
 
     @property
     def native_value(self) -> datetime | None:
@@ -364,6 +491,14 @@ class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):
             self._last_completed_fn(self._data),
             self._interval_fn(get_care_schedule(self._entry)),
         )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Return a calendar-aware relative due description."""
+        value = self.native_value
+        if value is None:
+            return None
+        return {"relative_time": format_scheduled_relative_time(value)}
 
 
 class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
@@ -377,23 +512,21 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         description: SensorEntityDescription,
         last_completed_fn: Callable[[LizardCareData], datetime | None],
         interval_fn: Callable[[CareSchedule], int],
+        time_updater: LizardCareSensorTimeUpdater,
     ) -> None:
         """Initialize a care status sensor."""
         super().__init__(entry.runtime_data, entry.entry_id, description)
         self._entry = entry
         self._last_completed_fn = last_completed_fn
         self._interval_fn = interval_fn
+        self._time_updater = time_updater
 
     async def async_added_to_hass(self) -> None:
         """Update status when the local date changes."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            async_track_time_change(
-                self.hass,
-                self._async_date_changed,
-                hour=0,
-                minute=0,
-                second=0,
+            self._time_updater.async_add_daily_listener(
+                self.async_write_ha_state
             )
         )
 
@@ -407,10 +540,24 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         status = calculate_care_status(next_due)
         return status.value if status is not None else None
 
-    @callback
-    def _async_date_changed(self, _now: datetime) -> None:
-        """Refresh status at local midnight."""
-        self.async_write_ha_state()
+    @property
+    def extra_state_attributes(self) -> dict[str, int] | None:
+        """Return nonnegative local-calendar due distance attributes."""
+        counts = self._due_day_counts()
+        if counts is None:
+            return None
+        return {
+            "days_until_due": counts.days_until_due,
+            "days_overdue": counts.days_overdue,
+        }
+
+    def _due_day_counts(self) -> DueDayCounts | None:
+        """Calculate local-calendar distance for this care schedule."""
+        next_due = calculate_next_due(
+            self._last_completed_fn(self._data),
+            self._interval_fn(get_care_schedule(self._entry)),
+        )
+        return calculate_due_day_counts(next_due)
 
 
 class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
@@ -418,7 +565,11 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
 
     entity_description = CARE_STATUS_DESCRIPTION
 
-    def __init__(self, entry: LizardCareConfigEntry) -> None:
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        time_updater: LizardCareSensorTimeUpdater,
+    ) -> None:
         """Initialize the overall care status sensor."""
         super().__init__(
             entry.runtime_data,
@@ -426,6 +577,7 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
             CARE_STATUS_DESCRIPTION,
         )
         self._entry = entry
+        self._time_updater = time_updater
         self._food_due_unsub: Callable[[], None] | None = None
         self._food_due_event: str | None = None
         self._food_due_at: datetime | None = None
@@ -434,12 +586,8 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         """Track local midnight, care changes, and food-removal due time."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            async_track_time_change(
-                self.hass,
-                self._async_time_changed,
-                hour=0,
-                minute=0,
-                second=0,
+            self._time_updater.async_add_daily_listener(
+                self.async_write_ha_state
             )
         )
         self.async_on_remove(
@@ -544,11 +692,6 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         self._schedule_food_due_transition()
 
     @callback
-    def _async_time_changed(self, _now: datetime) -> None:
-        """Refresh at midnight or when food removal becomes due."""
-        self.async_write_ha_state()
-
-    @callback
     def _schedule_food_due_transition(self) -> None:
         """Schedule the exact point when present food becomes overdue."""
         feeding_event = (
@@ -593,6 +736,84 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         """Refresh when food removal crosses into overdue."""
         self._food_due_unsub = None
         self.async_write_ha_state()
+
+
+class LizardCareLastCareActivitySensor(LizardCareEntity, SensorEntity):
+    """Show the newest feeding, removal, or cleaning activity."""
+
+    entity_description = LAST_CARE_ACTIVITY_DESCRIPTION
+
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        time_updater: LizardCareSensorTimeUpdater,
+    ) -> None:
+        """Initialize the last care activity sensor."""
+        super().__init__(
+            entry.runtime_data,
+            entry.entry_id,
+            LAST_CARE_ACTIVITY_DESCRIPTION,
+        )
+        self._time_updater = time_updater
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the shared minute-level relative-time update."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._time_updater.async_add_minute_listener(
+                self.async_write_ha_state
+            )
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the most recent activity type."""
+        activity = self._last_activity()
+        return activity.activity.value if activity is not None else None
+
+    @property
+    def icon(self) -> str:
+        """Return an icon matching the most recent activity."""
+        activity = self._last_activity()
+        if activity is None:
+            return "mdi:history"
+        return {
+            CareActivity.FED: "mdi:food-apple-outline",
+            CareActivity.FOOD_REMOVED: "mdi:bowl-outline",
+            CareActivity.SPOT_CLEAN: "mdi:spray-bottle",
+            CareActivity.FULL_CLEAN: "mdi:shimmer",
+        }[activity.activity]
+
+    @property
+    def extra_state_attributes(
+        self,
+    ) -> dict[str, str | datetime] | None:
+        """Return friendly details for the most recent activity."""
+        activity = self._last_activity()
+        if activity is None:
+            return None
+        labels = {
+            CareActivity.FED: "Fed",
+            CareActivity.FOOD_REMOVED: "Food Removed",
+            CareActivity.SPOT_CLEAN: "Spot Clean",
+            CareActivity.FULL_CLEAN: "Full Clean",
+        }
+        return {
+            "activity": labels[activity.activity],
+            "timestamp": activity.timestamp,
+            "relative_time": format_past_relative_time(activity.timestamp),
+        }
+
+    def _last_activity(self) -> LastCareActivity | None:
+        """Resolve the newest care timestamp from runtime state."""
+        return find_last_care_activity(
+            {
+                CareActivity.FED: self._data.last_fed,
+                CareActivity.FOOD_REMOVED: self._data.last_food_removed,
+                CareActivity.SPOT_CLEAN: self._data.last_spot_clean,
+                CareActivity.FULL_CLEAN: self._data.last_full_clean,
+            }
+        )
 
 
 def _care_status_summary(result: OverallCareResult) -> str:

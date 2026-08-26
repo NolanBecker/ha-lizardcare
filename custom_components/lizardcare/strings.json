@@ -155,6 +155,15 @@
           "overdue": "Overdue",
           "unknown": "Unknown"
         }
+      },
+      "last_care_activity": {
+        "name": "Last Care Activity",
+        "state": {
+          "fed": "Fed",
+          "food_removed": "Food Removed",
+          "spot_clean": "Spot Clean",
+          "full_clean": "Full Clean"
+        }
       }
     },
     "binary_sensor": {
