@@ -37,21 +37,46 @@
           "sex": "Sex",
           "feeding_interval_days": "Feeding interval in days",
           "spot_clean_interval_days": "Spot-clean interval in days",
-          "full_clean_interval_days": "Full-clean interval in days"
+          "full_clean_interval_days": "Full-clean interval in days",
+          "notification_recipients": "Notification recipients",
+          "feeding_reminders": "Feeding reminders",
+          "spot_clean_reminders": "Spot-clean reminders",
+          "full_clean_reminders": "Full-clean reminders",
+          "food_removal_reminder": "Food-removal reminder",
+          "feeding_reminder_time": "Feeding reminder time",
+          "cleaning_reminder_time": "Cleaning reminder time",
+          "food_removal_delay_hours": "Food-removal delay in hours",
+          "food_removal_reminder_basis": "Food-removal reminder basis",
+          "feeding_overdue_repeat_hours": "Feeding overdue repeat interval",
+          "spot_clean_overdue_repeat_hours": "Spot-clean overdue repeat interval",
+          "full_clean_overdue_repeat_hours": "Full-clean overdue repeat interval"
         },
         "data_description": {
           "birth_date": "Optional",
           "sex": "Optional",
           "feeding_interval_days": "Number of days between feedings",
           "spot_clean_interval_days": "Number of days between spot cleans",
-          "full_clean_interval_days": "Number of days between full enclosure cleans"
+          "full_clean_interval_days": "Number of days between full enclosure cleans",
+          "notification_recipients": "Select one or more notify entities. Leave empty to disable delivery.",
+          "feeding_reminders": "Send due and overdue feeding reminders",
+          "spot_clean_reminders": "Send due and overdue spot-clean reminders",
+          "full_clean_reminders": "Send due and overdue full-clean reminders",
+          "food_removal_reminder": "Remind once per feeding if food remains in the enclosure",
+          "feeding_reminder_time": "Local time for daily feeding reminders",
+          "cleaning_reminder_time": "Local time for daily cleaning reminders",
+          "food_removal_delay_hours": "Hours after the reminder anchor before checking whether food remains",
+          "food_removal_reminder_basis": "Choose whether the delay starts at the actual feeding time or scheduled feeding reminder time",
+          "feeding_overdue_repeat_hours": "Hours between overdue feeding reminders; enter 0 to disable repeats",
+          "spot_clean_overdue_repeat_hours": "Hours between overdue spot-clean reminders; enter 0 to disable repeats",
+          "full_clean_overdue_repeat_hours": "Hours between overdue full-clean reminders; enter 0 to disable repeats"
         }
       }
     },
     "error": {
       "invalid_pet_name": "Enter a pet name",
       "duplicate_pet_name": "A pet with this name is already configured",
-      "invalid_interval": "Enter a whole number greater than zero"
+      "invalid_interval": "Enter a whole number greater than zero",
+      "invalid_repeat_interval": "Enter a whole number of hours that is zero or greater"
     }
   },
   "entity": {
