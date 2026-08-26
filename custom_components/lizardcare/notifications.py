@@ -55,6 +55,7 @@ from .profile import get_pet_profile
 from .schedule import (
     CareStatus,
     calculate_care_status,
+    calculate_effective_last_spot_clean,
     calculate_next_due,
     get_care_schedule,
 )
@@ -367,7 +368,13 @@ class LizardCareNotificationManager:
         if key == "spot_clean":
             return (
                 settings.spot_clean_reminders,
-                self._care_data.last_spot_clean,
+                calculate_effective_last_spot_clean(
+                    self._care_data.last_spot_clean,
+                    self._care_data.last_full_clean,
+                    full_clean_satisfies_spot_clean=(
+                        schedule.full_clean_satisfies_spot_clean
+                    ),
+                ),
                 schedule.spot_clean_interval_days,
                 settings.spot_clean_overdue_repeat_hours,
             )
@@ -578,7 +585,13 @@ class LizardCareNotificationManager:
             (
                 "spot_clean",
                 settings.spot_clean_reminders,
-                self._care_data.last_spot_clean,
+                calculate_effective_last_spot_clean(
+                    self._care_data.last_spot_clean,
+                    self._care_data.last_full_clean,
+                    full_clean_satisfies_spot_clean=(
+                        schedule.full_clean_satisfies_spot_clean
+                    ),
+                ),
                 schedule.spot_clean_interval_days,
                 f"{profile.pet_name} is due for a spot clean",
                 f"{profile.pet_name}'s spot clean is overdue",

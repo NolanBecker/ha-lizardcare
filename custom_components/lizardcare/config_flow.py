@@ -29,6 +29,7 @@ from .const import (
     CONF_FULL_CLEAN_INTERVAL_DAYS,
     CONF_FULL_CLEAN_OVERDUE_REPEAT_HOURS,
     CONF_FULL_CLEAN_REMINDERS,
+    CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
     CONF_NOTES,
     CONF_NORMALIZED_PET_NAME,
     CONF_NOTIFICATION_RECIPIENTS,
@@ -103,6 +104,9 @@ def _options_schema() -> vol.Schema:
             vol.Required(
                 CONF_FULL_CLEAN_INTERVAL_DAYS
             ): _positive_integer_selector(),
+            vol.Required(
+                CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN
+            ): selector.BooleanSelector(),
             vol.Optional(CONF_NOTIFICATION_RECIPIENTS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="notify", multiple=True)
             ),
@@ -260,6 +264,9 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_BIRTH_DATE: user_input.get(CONF_BIRTH_DATE),
                     CONF_SEX: user_input.get(CONF_SEX),
                     CONF_NOTES: user_input.get(CONF_NOTES),
+                    CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN: user_input[
+                        CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN
+                    ],
                     CONF_NOTIFICATION_RECIPIENTS: user_input.get(
                         CONF_NOTIFICATION_RECIPIENTS, []
                     ),
@@ -301,6 +308,9 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             CONF_FEEDING_INTERVAL_DAYS: schedule.feeding_interval_days,
             CONF_SPOT_CLEAN_INTERVAL_DAYS: schedule.spot_clean_interval_days,
             CONF_FULL_CLEAN_INTERVAL_DAYS: schedule.full_clean_interval_days,
+            CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN: (
+                schedule.full_clean_satisfies_spot_clean
+            ),
             CONF_NOTIFICATION_RECIPIENTS: list(
                 notification_settings.recipients
             ),

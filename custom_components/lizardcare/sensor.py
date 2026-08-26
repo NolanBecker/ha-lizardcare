@@ -40,6 +40,7 @@ from .schedule import (
     OverallCareResult,
     OverallCareStatus,
     calculate_care_status,
+    calculate_effective_last_spot_clean,
     calculate_next_due,
     calculate_overall_care_status,
     get_care_schedule,
@@ -288,7 +289,7 @@ async def async_setup_entry(
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[1],
-                lambda state: state.last_spot_clean,
+                lambda state: _effective_last_spot_clean(entry, state),
                 lambda config: config.spot_clean_interval_days,
                 time_updater,
             ),
@@ -309,7 +310,7 @@ async def async_setup_entry(
             LizardCareStatusSensor(
                 entry,
                 STATUS_DESCRIPTIONS[1],
-                lambda state: state.last_spot_clean,
+                lambda state: _effective_last_spot_clean(entry, state),
                 lambda config: config.spot_clean_interval_days,
                 time_updater,
             ),
@@ -643,7 +644,13 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
             item_statuses["food_removal"] = self._food_removal_status()
         item_statuses["spot_clean"] = calculate_care_status(
             calculate_next_due(
-                self._data.last_spot_clean,
+                calculate_effective_last_spot_clean(
+                    self._data.last_spot_clean,
+                    self._data.last_full_clean,
+                    full_clean_satisfies_spot_clean=(
+                        schedule.full_clean_satisfies_spot_clean
+                    ),
+                ),
                 schedule.spot_clean_interval_days,
             ),
             today,
@@ -814,6 +821,21 @@ class LizardCareLastCareActivitySensor(LizardCareEntity, SensorEntity):
                 CareActivity.FULL_CLEAN: self._data.last_full_clean,
             }
         )
+
+
+def _effective_last_spot_clean(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+) -> datetime | None:
+    """Resolve the event currently satisfying the spot-clean schedule."""
+    schedule = get_care_schedule(entry)
+    return calculate_effective_last_spot_clean(
+        data.last_spot_clean,
+        data.last_full_clean,
+        full_clean_satisfies_spot_clean=(
+            schedule.full_clean_satisfies_spot_clean
+        ),
+    )
 
 
 def _care_status_summary(result: OverallCareResult) -> str:

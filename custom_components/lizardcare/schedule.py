@@ -13,9 +13,11 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_FEEDING_INTERVAL_DAYS,
     CONF_FULL_CLEAN_INTERVAL_DAYS,
+    CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
     CONF_SPOT_CLEAN_INTERVAL_DAYS,
     DEFAULT_FEEDING_INTERVAL_DAYS,
     DEFAULT_FULL_CLEAN_INTERVAL_DAYS,
+    DEFAULT_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
     DEFAULT_SPOT_CLEAN_INTERVAL_DAYS,
 )
 
@@ -53,6 +55,7 @@ class CareSchedule:
     feeding_interval_days: int
     spot_clean_interval_days: int
     full_clean_interval_days: int
+    full_clean_satisfies_spot_clean: bool
 
 
 def _positive_option(entry: ConfigEntry, key: str, default: int) -> int:
@@ -61,6 +64,12 @@ def _positive_option(entry: ConfigEntry, key: str, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         return default
     return value
+
+
+def _boolean_option(entry: ConfigEntry, key: str, default: bool) -> bool:
+    """Return a boolean schedule option or its default."""
+    value = entry.options.get(key, default)
+    return value if isinstance(value, bool) else default
 
 
 def get_care_schedule(entry: ConfigEntry) -> CareSchedule:
@@ -81,7 +90,26 @@ def get_care_schedule(entry: ConfigEntry) -> CareSchedule:
             CONF_FULL_CLEAN_INTERVAL_DAYS,
             DEFAULT_FULL_CLEAN_INTERVAL_DAYS,
         ),
+        full_clean_satisfies_spot_clean=_boolean_option(
+            entry,
+            CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
+            DEFAULT_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
+        ),
     )
+
+
+def calculate_effective_last_spot_clean(
+    last_spot_clean: datetime | None,
+    last_full_clean: datetime | None,
+    *,
+    full_clean_satisfies_spot_clean: bool,
+) -> datetime | None:
+    """Return the newest event satisfying the spot-clean schedule."""
+    if not full_clean_satisfies_spot_clean or last_full_clean is None:
+        return last_spot_clean
+    if last_spot_clean is None:
+        return last_full_clean
+    return max(last_spot_clean, last_full_clean)
 
 
 def calculate_next_due(
