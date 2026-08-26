@@ -50,6 +50,7 @@ from .const import (
     FOOD_REMOVAL_BASIS_SCHEDULED,
 )
 from .coordinator import LizardCareData
+from .food_removal import calculate_food_removal_timing
 from .profile import get_pet_profile
 from .schedule import (
     CareStatus,
@@ -218,50 +219,28 @@ def calculate_food_removal_reminder(
     now: datetime,
 ) -> datetime | None:
     """Calculate a timezone-aware food-removal reminder timestamp."""
-    actual_due = last_fed + timedelta(hours=settings.food_removal_delay_hours)
-    if settings.food_removal_reminder_basis == FOOD_REMOVAL_BASIS_ACTUAL:
-        return actual_due
-
-    local_fed = dt_util.as_local(last_fed)
-    anchor_date = local_fed.date()
-    if local_fed.timetz().replace(tzinfo=None) < settings.feeding_reminder_time:
-        anchor_date -= timedelta(days=1)
-    local_anchor = datetime.combine(
-        anchor_date,
-        settings.feeding_reminder_time,
-        tzinfo=dt_util.get_default_time_zone(),
-    )
-    scheduled_due = local_anchor + timedelta(
-        hours=settings.food_removal_delay_hours
-    )
-    scheduled_due = dt_util.as_utc(scheduled_due)
-    if scheduled_due > now:
-        return scheduled_due
-    return actual_due if actual_due > now else None
+    return calculate_food_removal_timing(
+        last_fed,
+        delay_hours=settings.food_removal_delay_hours,
+        basis=settings.food_removal_reminder_basis,
+        feeding_reminder_time=settings.feeding_reminder_time,
+        now=now,
+    ).notification_at
 
 
 def calculate_stale_food_removal_anchor(
     last_fed: datetime,
     settings: NotificationSettings,
+    now: datetime,
 ) -> datetime:
-    """Return the most recent valid due time for a stale removal reminder."""
-    actual_due = last_fed + timedelta(hours=settings.food_removal_delay_hours)
-    if settings.food_removal_reminder_basis == FOOD_REMOVAL_BASIS_ACTUAL:
-        return dt_util.as_utc(actual_due)
-
-    local_fed = dt_util.as_local(last_fed)
-    anchor_date = local_fed.date()
-    if local_fed.timetz().replace(tzinfo=None) < settings.feeding_reminder_time:
-        anchor_date -= timedelta(days=1)
-    local_anchor = datetime.combine(
-        anchor_date,
-        settings.feeding_reminder_time,
-        tzinfo=dt_util.get_default_time_zone(),
-    )
-    scheduled_due = local_anchor + timedelta(
-        hours=settings.food_removal_delay_hours
-    )
-    return max(dt_util.as_utc(actual_due), dt_util.as_utc(scheduled_due))
+    """Return the effective due time for a stale removal reminder."""
+    return calculate_food_removal_timing(
+        last_fed,
+        delay_hours=settings.food_removal_delay_hours,
+        basis=settings.food_removal_reminder_basis,
+        feeding_reminder_time=settings.feeding_reminder_time,
+        now=now,
+    ).reminder_at
 
 
 class LizardCareNotificationManager:
@@ -547,7 +526,9 @@ class LizardCareNotificationManager:
             if repeat_hours == 0:
                 return
             due = calculate_next_overdue_repeat(
-                calculate_stale_food_removal_anchor(last_fed, settings),
+                calculate_stale_food_removal_anchor(
+                    last_fed, settings, now
+                ),
                 repeat_hours,
                 now,
             )

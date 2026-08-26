@@ -12,18 +12,24 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import LizardCareConfigEntry
 from .coordinator import LizardCareData
 from .entity import LizardCareEntity
+from .food_removal import calculate_food_removal_timing
+from .notifications import get_notification_settings
 from .profile import get_birth_date, get_pet_profile
 from .schedule import (
     CareSchedule,
     CareStatus,
+    OverallCareResult,
+    OverallCareStatus,
     calculate_care_status,
     calculate_next_due,
+    calculate_overall_care_status,
     get_care_schedule,
 )
 
@@ -119,6 +125,13 @@ STATUS_DESCRIPTIONS = (
     ),
 )
 
+CARE_STATUS_DESCRIPTION = SensorEntityDescription(
+    key="care_status",
+    translation_key="care_status",
+    device_class=SensorDeviceClass.ENUM,
+    options=[status.value for status in OverallCareStatus],
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -207,6 +220,7 @@ async def async_setup_entry(
                 lambda state: state.last_full_clean,
                 lambda config: config.full_clean_interval_days,
             ),
+            LizardCareOverallCareStatusSensor(entry),
         ]
     )
 
@@ -397,6 +411,219 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
     def _async_date_changed(self, _now: datetime) -> None:
         """Refresh status at local midnight."""
         self.async_write_ha_state()
+
+
+class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
+    """Summarize all currently configured care requirements."""
+
+    entity_description = CARE_STATUS_DESCRIPTION
+
+    def __init__(self, entry: LizardCareConfigEntry) -> None:
+        """Initialize the overall care status sensor."""
+        super().__init__(
+            entry.runtime_data,
+            entry.entry_id,
+            CARE_STATUS_DESCRIPTION,
+        )
+        self._entry = entry
+        self._food_due_unsub: Callable[[], None] | None = None
+        self._food_due_event: str | None = None
+        self._food_due_at: datetime | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Track local midnight, care changes, and food-removal due time."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass,
+                self._async_time_changed,
+                hour=0,
+                minute=0,
+                second=0,
+            )
+        )
+        self.async_on_remove(
+            self._data.async_add_listener(self._async_care_changed)
+        )
+        self._schedule_food_due_transition()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the current food-removal transition callback."""
+        if self._food_due_unsub is not None:
+            self._food_due_unsub()
+            self._food_due_unsub = None
+        await super().async_will_remove_from_hass()
+
+    @property
+    def native_value(self) -> str:
+        """Return the aggregate care state."""
+        return self._calculate_result().status.value
+
+    @property
+    def icon(self) -> str:
+        """Return an icon matching the aggregate state."""
+        return {
+            OverallCareStatus.ALL_GOOD: "mdi:check-circle-outline",
+            OverallCareStatus.ATTENTION_NEEDED: "mdi:alert-circle-outline",
+            OverallCareStatus.OVERDUE: "mdi:alert-octagon-outline",
+            OverallCareStatus.UNKNOWN: "mdi:help-circle-outline",
+        }[self._calculate_result().status]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, list[str] | str]:
+        """Explain which care items contribute to the aggregate state."""
+        result = self._calculate_result()
+        return {
+            "attention_items": list(result.attention_items),
+            "overdue_items": list(result.overdue_items),
+            "summary": _care_status_summary(result),
+        }
+
+    def _calculate_result(self) -> OverallCareResult:
+        """Calculate current status directly from runtime and options data."""
+        schedule = get_care_schedule(self._entry)
+        today = dt_util.now().date()
+        item_statuses: dict[str, CareStatus | None] = {}
+        item_statuses["feeding"] = calculate_care_status(
+            calculate_next_due(
+                self._data.last_fed,
+                schedule.feeding_interval_days,
+            ),
+            today,
+        )
+        if self._data.food_in_enclosure:
+            item_statuses["food_removal"] = self._food_removal_status()
+        item_statuses["spot_clean"] = calculate_care_status(
+            calculate_next_due(
+                self._data.last_spot_clean,
+                schedule.spot_clean_interval_days,
+            ),
+            today,
+        )
+        item_statuses["full_clean"] = calculate_care_status(
+            calculate_next_due(
+                self._data.last_full_clean,
+                schedule.full_clean_interval_days,
+            ),
+            today,
+        )
+        return calculate_overall_care_status(item_statuses)
+
+    def _food_removal_status(self) -> CareStatus | None:
+        """Return the current contribution from food in the enclosure."""
+        if not self._data.food_in_enclosure:
+            return CareStatus.NOT_DUE
+        last_fed = self._data.last_fed
+        if last_fed is None:
+            return None
+        settings = get_notification_settings(self._entry)
+        now = dt_util.utcnow()
+        feeding_event = last_fed.isoformat()
+        if (
+            self._food_due_event == feeding_event
+            and self._food_due_at is not None
+        ):
+            reminder_at = self._food_due_at
+        else:
+            reminder_at = calculate_food_removal_timing(
+                last_fed,
+                delay_hours=settings.food_removal_delay_hours,
+                basis=settings.food_removal_reminder_basis,
+                feeding_reminder_time=settings.feeding_reminder_time,
+                now=now,
+            ).reminder_at
+        return (
+            CareStatus.OVERDUE
+            if reminder_at <= now
+            else CareStatus.DUE_TODAY
+        )
+
+    @callback
+    def _async_care_changed(self) -> None:
+        """Reschedule a time-only transition after runtime changes."""
+        self._schedule_food_due_transition()
+
+    @callback
+    def _async_time_changed(self, _now: datetime) -> None:
+        """Refresh at midnight or when food removal becomes due."""
+        self.async_write_ha_state()
+
+    @callback
+    def _schedule_food_due_transition(self) -> None:
+        """Schedule the exact point when present food becomes overdue."""
+        feeding_event = (
+            self._data.last_fed.isoformat()
+            if self._data.food_in_enclosure
+            and self._data.last_fed is not None
+            else None
+        )
+        if (
+            feeding_event is not None
+            and feeding_event == self._food_due_event
+            and self._food_due_at is not None
+        ):
+            return
+        if self._food_due_unsub is not None:
+            self._food_due_unsub()
+            self._food_due_unsub = None
+        self._food_due_event = None
+        self._food_due_at = None
+        if not self._data.food_in_enclosure or self._data.last_fed is None:
+            return
+        settings = get_notification_settings(self._entry)
+        now = dt_util.utcnow()
+        timing = calculate_food_removal_timing(
+            self._data.last_fed,
+            delay_hours=settings.food_removal_delay_hours,
+            basis=settings.food_removal_reminder_basis,
+            feeding_reminder_time=settings.feeding_reminder_time,
+            now=now,
+        )
+        self._food_due_event = feeding_event
+        self._food_due_at = timing.reminder_at
+        if timing.reminder_at > now:
+            self._food_due_unsub = async_track_point_in_utc_time(
+                self.hass,
+                self._async_food_due,
+                timing.reminder_at,
+            )
+
+    @callback
+    def _async_food_due(self, _now: datetime) -> None:
+        """Refresh when food removal crosses into overdue."""
+        self._food_due_unsub = None
+        self.async_write_ha_state()
+
+
+def _care_status_summary(result: OverallCareResult) -> str:
+    """Return a concise human-readable explanation of aggregate care."""
+    if result.status is OverallCareStatus.ALL_GOOD:
+        return "All care is up to date"
+    if result.status is OverallCareStatus.UNKNOWN:
+        return "Care status is not yet available"
+
+    items = (
+        result.overdue_items
+        if result.status is OverallCareStatus.OVERDUE
+        else result.attention_items
+    )
+    labels = {
+        "feeding": "Feeding",
+        "food_removal": "Food Removal",
+        "spot_clean": "Spot Clean",
+        "full_clean": "Full Clean",
+    }
+    item_names = [labels[item] for item in items]
+    joined = (
+        item_names[0]
+        if len(item_names) == 1
+        else f"{', '.join(item_names[:-1])} and {item_names[-1]}"
+    )
+    if result.status is OverallCareStatus.OVERDUE:
+        return f"{joined} {'is' if len(items) == 1 else 'are'} overdue"
+    if items == ("food_removal",):
+        return "Food needs to be removed"
+    return f"{joined} {'needs' if len(items) == 1 else 'need'} attention"
 
 
 def _format_age(birth_date: date, today: date) -> str | None:

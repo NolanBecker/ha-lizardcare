@@ -146,6 +146,15 @@
           "due_today": "Due today",
           "overdue": "Overdue"
         }
+      },
+      "care_status": {
+        "name": "Care Status",
+        "state": {
+          "all_good": "All good",
+          "attention_needed": "Attention needed",
+          "overdue": "Overdue",
+          "unknown": "Unknown"
+        }
       }
     },
     "binary_sensor": {

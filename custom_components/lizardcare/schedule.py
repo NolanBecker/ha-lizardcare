@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -25,6 +26,24 @@ class CareStatus(StrEnum):
     NOT_DUE = "not_due"
     DUE_TODAY = "due_today"
     OVERDUE = "overdue"
+
+
+class OverallCareStatus(StrEnum):
+    """Possible aggregate care states."""
+
+    ALL_GOOD = "all_good"
+    ATTENTION_NEEDED = "attention_needed"
+    OVERDUE = "overdue"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class OverallCareResult:
+    """Calculated overall state and its contributing items."""
+
+    status: OverallCareStatus
+    attention_items: tuple[str, ...]
+    overdue_items: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,3 +107,28 @@ def calculate_care_status(
     if due_date == local_today:
         return CareStatus.DUE_TODAY
     return CareStatus.NOT_DUE
+
+
+def calculate_overall_care_status(
+    item_statuses: Mapping[str, CareStatus | None],
+) -> OverallCareResult:
+    """Combine individual states, giving known actionable states priority."""
+    attention_items = tuple(
+        key
+        for key, status in item_statuses.items()
+        if status is CareStatus.DUE_TODAY
+    )
+    overdue_items = tuple(
+        key
+        for key, status in item_statuses.items()
+        if status is CareStatus.OVERDUE
+    )
+    if overdue_items:
+        overall = OverallCareStatus.OVERDUE
+    elif attention_items:
+        overall = OverallCareStatus.ATTENTION_NEEDED
+    elif any(status is None for status in item_statuses.values()):
+        overall = OverallCareStatus.UNKNOWN
+    else:
+        overall = OverallCareStatus.ALL_GOOD
+    return OverallCareResult(overall, attention_items, overdue_items)
