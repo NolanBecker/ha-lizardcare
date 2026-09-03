@@ -67,9 +67,42 @@ blueprint:
       default: true
       selector:
         boolean:
+    separate_overdue_repeat_intervals:
+      name: Use separate feeding and cleaning repeat intervals
+      description: >
+        Enable separate repeat cadences below. Leave disabled to keep using
+        the existing global interval for all care tasks.
+      default: false
+      selector:
+        boolean:
+    feeding_overdue_repeat_interval_minutes:
+      name: Feeding overdue repeat interval
+      description: How often to repeat overdue feeding reminders.
+      default: 60
+      selector:
+        number:
+          min: 15
+          max: 10080
+          step: 15
+          unit_of_measurement: minutes
+          mode: box
+    cleaning_overdue_repeat_interval_minutes:
+      name: Cleaning overdue repeat interval
+      description: >
+        How often to repeat overdue Spot Clean and Full Clean reminders.
+      default: 1440
+      selector:
+        number:
+          min: 15
+          max: 10080
+          step: 15
+          unit_of_measurement: minutes
+          mode: box
     overdue_repeat_interval_minutes:
-      name: Overdue repeat interval
-      description: Time between overdue reminders, in minutes.
+      name: Legacy global overdue repeat interval
+      description: >
+        Compatibility setting used for all tasks when separate intervals are
+        disabled.
       default: 60
       selector:
         number:
@@ -137,18 +170,29 @@ variables:
   full_clean_is_enabled: !input full_clean_enabled
   send_due_today: !input due_today_enabled
   send_overdue: !input overdue_enabled
+  use_separate_repeat_intervals: !input separate_overdue_repeat_intervals
+  feeding_repeat_minutes: !input feeding_overdue_repeat_interval_minutes
+  cleaning_repeat_minutes: !input cleaning_overdue_repeat_interval_minutes
   repeat_minutes: !input overdue_repeat_interval_minutes
   legacy_repeat_hours: !input overdue_repeat_interval
-  repeat_interval_minutes: >
+  global_repeat_interval_minutes: >
     {% if legacy_repeat_hours | int(0) > 0 %}
       {{ legacy_repeat_hours | int * 60 }}
     {% else %}
       {{ repeat_minutes | int }}
     {% endif %}
+  feeding_repeat_interval_minutes: >
+    {{ feeding_repeat_minutes | int if use_separate_repeat_intervals
+       else global_repeat_interval_minutes | int }}
+  cleaning_repeat_interval_minutes: >
+    {{ cleaning_repeat_minutes | int if use_separate_repeat_intervals
+       else global_repeat_interval_minutes | int }}
   wall_clock_minutes: >
     {{ now().toordinal() * 1440 + now().hour * 60 + now().minute }}
-  is_repeat_boundary: >
-    {{ wall_clock_minutes | int % repeat_interval_minutes | int == 0 }}
+  is_feeding_repeat_boundary: >
+    {{ wall_clock_minutes | int % feeding_repeat_interval_minutes | int == 0 }}
+  is_cleaning_repeat_boundary: >
+    {{ wall_clock_minutes | int % cleaning_repeat_interval_minutes | int == 0 }}
   automation_ran_this_minute: >
     {% set last_run = as_timestamp(this.attributes.last_triggered, 0) %}
     {{ last_run > 0 and
@@ -202,7 +246,8 @@ actions:
              (trigger.id == 'feeding_overdue' or
               (trigger.id == 'startup' and
                not automation_ran_this_minute) or
-              (trigger.id == 'overdue_repeat' and is_repeat_boundary and
+              (trigger.id == 'overdue_repeat' and
+               is_feeding_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
           - action: notify.send_message
@@ -219,7 +264,8 @@ actions:
              (trigger.id == 'spot_clean_overdue' or
               (trigger.id == 'startup' and
                not automation_ran_this_minute) or
-              (trigger.id == 'overdue_repeat' and is_repeat_boundary and
+              (trigger.id == 'overdue_repeat' and
+               is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
           - action: notify.send_message
@@ -236,7 +282,8 @@ actions:
              (trigger.id == 'full_clean_overdue' or
               (trigger.id == 'startup' and
                not automation_ran_this_minute) or
-              (trigger.id == 'overdue_repeat' and is_repeat_boundary and
+              (trigger.id == 'overdue_repeat' and
+               is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
           - action: notify.send_message

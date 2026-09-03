@@ -66,6 +66,9 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "full_clean_enabled",
         "due_today_enabled",
         "overdue_enabled",
+        "separate_overdue_repeat_intervals",
+        "feeding_overdue_repeat_interval_minutes",
+        "cleaning_overdue_repeat_interval_minutes",
         "overdue_repeat_interval",
         "overdue_repeat_interval_minutes",
         "pet_name_override",
@@ -103,6 +106,26 @@ def test_legacy_hour_interval_remains_backward_compatible() -> None:
     assert legacy_input["selector"]["number"]["unit_of_measurement"] == "hours"
 
 
+def test_separate_repeat_interval_inputs() -> None:
+    """Category-specific controls have clear defaults and minute selectors."""
+    path = BLUEPRINT_DIR / "care_reminders.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    inputs = document["blueprint"]["input"]
+
+    assert inputs["separate_overdue_repeat_intervals"]["default"] is False
+    for key, expected_default in (
+        ("feeding_overdue_repeat_interval_minutes", 60),
+        ("cleaning_overdue_repeat_interval_minutes", 1440),
+    ):
+        repeat_input = inputs[key]
+        selector = repeat_input["selector"]["number"]
+        assert repeat_input["default"] == expected_default
+        assert selector["min"] == 15
+        assert selector["max"] == 10080
+        assert selector["step"] == 15
+        assert selector["unit_of_measurement"] == "minutes"
+
+
 @pytest.mark.parametrize(
     ("minutes", "legacy_hours", "expected_minutes"),
     [
@@ -131,10 +154,46 @@ def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
 
     assert "legacy_repeat_hours | int * 60" in blueprint
     assert "now().toordinal() * 1440" in blueprint
-    assert blueprint.count("is_repeat_boundary and") == 3
+    assert blueprint.count("is_feeding_repeat_boundary and") == 1
+    assert blueprint.count("is_cleaning_repeat_boundary and") == 2
     assert blueprint.count("not automation_ran_this_minute") == 6
     assert blueprint.count("elapsed >= 60") == 3
     assert "\n  repeat_hours:" not in blueprint
+
+
+@pytest.mark.parametrize(
+    (
+        "separate",
+        "global_minutes",
+        "legacy_hours",
+        "feeding_minutes",
+        "cleaning_minutes",
+        "expected_feeding",
+        "expected_cleaning",
+    ),
+    [
+        (True, 60, 0, 60, 1440, 60, 1440),
+        (False, 30, 0, 60, 1440, 30, 30),
+        (False, 60, 1, 60, 1440, 60, 60),
+    ],
+)
+def test_category_repeat_interval_resolution(
+    separate: bool,
+    global_minutes: int,
+    legacy_hours: int,
+    feeding_minutes: int,
+    cleaning_minutes: int,
+    expected_feeding: int,
+    expected_cleaning: int,
+) -> None:
+    """Separate settings are opt-in and legacy global settings stay stable."""
+    global_interval = (
+        legacy_hours * 60 if legacy_hours > 0 else global_minutes
+    )
+    resolved_feeding = feeding_minutes if separate else global_interval
+    resolved_cleaning = cleaning_minutes if separate else global_interval
+    assert resolved_feeding == expected_feeding
+    assert resolved_cleaning == expected_cleaning
 
 
 def _is_boundary(value: datetime, interval_minutes: int) -> bool:
