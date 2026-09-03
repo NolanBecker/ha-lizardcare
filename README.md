@@ -108,10 +108,13 @@ Alternatively, copy both repository files into
 
 The selected time controls only `due_today` notices. An `overdue` transition
 sends immediately, and a minute-level check honors the configured repeat
-interval independently for every task. Recording or correcting a task stops
-its overdue messages without affecting other overdue tasks. Startup recovery
-checks tasks that are already overdue; automation reloads resume the periodic
-evaluation without waiting for the daily time.
+interval independently for every task. Repeats align to Home Assistant's local
+wall clock: for example, a 30-minute interval runs at `:00` and `:30`, while a
+90-minute interval runs from local midnight at `00:00`, `01:30`, `03:00`, and
+so on. Recording or correcting a task stops its overdue messages without
+affecting other overdue tasks. Startup recovery checks tasks that are already
+overdue; automation reloads resume the same wall-clock cadence without waiting
+for the daily time or starting a new countdown.
 
 Automations created with an older blueprint version remain compatible. Their
 saved **Legacy overdue repeat interval (hours)** value continues to be treated

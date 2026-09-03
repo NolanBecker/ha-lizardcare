@@ -3,7 +3,8 @@ blueprint:
   description: >
     Send feeding, spot-clean, and full-clean reminders from Lizard Care status
     sensors. Due-today notices use the configured reminder time. Overdue notices
-    begin immediately and repeat independently while each task remains overdue.
+    begin immediately and repeat independently on local wall-clock boundaries
+    while each task remains overdue.
   domain: automation
   author: Lizard Care
   source_url: https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/care_reminders.yaml
@@ -138,12 +139,20 @@ variables:
   send_overdue: !input overdue_enabled
   repeat_minutes: !input overdue_repeat_interval_minutes
   legacy_repeat_hours: !input overdue_repeat_interval
-  repeat_interval_seconds: >
+  repeat_interval_minutes: >
     {% if legacy_repeat_hours | int(0) > 0 %}
-      {{ legacy_repeat_hours | int * 3600 }}
+      {{ legacy_repeat_hours | int * 60 }}
     {% else %}
-      {{ repeat_minutes | int * 60 }}
+      {{ repeat_minutes | int }}
     {% endif %}
+  wall_clock_minutes: >
+    {{ now().toordinal() * 1440 + now().hour * 60 + now().minute }}
+  is_repeat_boundary: >
+    {{ wall_clock_minutes | int % repeat_interval_minutes | int == 0 }}
+  automation_ran_this_minute: >
+    {% set last_run = as_timestamp(this.attributes.last_triggered, 0) %}
+    {{ last_run > 0 and
+       (last_run / 60) | int == (as_timestamp(now()) / 60) | int }}
   title_prefix: !input notification_title_prefix
   configured_pet_name: !input pet_name_override
   pet_name: >
@@ -188,12 +197,13 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[feeding_entity].last_changed) %}
-          {% set interval = repeat_interval_seconds | int %}
           {{ send_overdue and feeding_is_enabled and
              is_state(feeding_entity, 'overdue') and
-             (trigger.id in ['feeding_overdue', 'startup'] or
-              (trigger.id == 'overdue_repeat' and elapsed >= interval and
-               elapsed % interval < 60)) }}
+             (trigger.id == 'feeding_overdue' or
+              (trigger.id == 'startup' and
+               not automation_ran_this_minute) or
+              (trigger.id == 'overdue_repeat' and is_repeat_boundary and
+               not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
           - action: notify.send_message
             target: !input notification_target
@@ -204,12 +214,13 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[spot_clean_entity].last_changed) %}
-          {% set interval = repeat_interval_seconds | int %}
           {{ send_overdue and spot_clean_is_enabled and
              is_state(spot_clean_entity, 'overdue') and
-             (trigger.id in ['spot_clean_overdue', 'startup'] or
-              (trigger.id == 'overdue_repeat' and elapsed >= interval and
-               elapsed % interval < 60)) }}
+             (trigger.id == 'spot_clean_overdue' or
+              (trigger.id == 'startup' and
+               not automation_ran_this_minute) or
+              (trigger.id == 'overdue_repeat' and is_repeat_boundary and
+               not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
           - action: notify.send_message
             target: !input notification_target
@@ -220,12 +231,13 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[full_clean_entity].last_changed) %}
-          {% set interval = repeat_interval_seconds | int %}
           {{ send_overdue and full_clean_is_enabled and
              is_state(full_clean_entity, 'overdue') and
-             (trigger.id in ['full_clean_overdue', 'startup'] or
-              (trigger.id == 'overdue_repeat' and elapsed >= interval and
-               elapsed % interval < 60)) }}
+             (trigger.id == 'full_clean_overdue' or
+              (trigger.id == 'startup' and
+               not automation_ran_this_minute) or
+              (trigger.id == 'overdue_repeat' and is_repeat_boundary and
+               not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
           - action: notify.send_message
             target: !input notification_target
