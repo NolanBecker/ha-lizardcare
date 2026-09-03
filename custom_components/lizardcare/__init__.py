@@ -1,7 +1,5 @@
 """The Lizard Care integration."""
 
-import logging
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -9,10 +7,7 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import LizardCareData
-from .notifications import LizardCareNotificationManager
 from .profile import get_pet_profile
-
-_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = (
     Platform.SENSOR,
@@ -43,15 +38,6 @@ async def async_setup_entry(
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    notification_manager = LizardCareNotificationManager(hass, entry, data)
-    try:
-        await notification_manager.async_setup()
-    except Exception:  # noqa: BLE001
-        notification_manager.async_shutdown()
-        _LOGGER.exception("Unable to set up notifications for %s", entry.title)
-    else:
-        entry.async_on_unload(notification_manager.async_shutdown)
     return True
 
 

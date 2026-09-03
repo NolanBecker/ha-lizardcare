@@ -1,0 +1,131 @@
+blueprint:
+  name: Lizard Care — Food Removal Reminder
+  description: >
+    Notify when Lizard Care reports that food is due for removal, then repeat
+    while the Food Removal Status remains due or overdue.
+  domain: automation
+  author: Lizard Care
+  source_url: https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/food_removal_reminder.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    food_removal_status:
+      name: Food Removal Status sensor
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    notification_target:
+      name: Notification target
+      description: Select one or more notify entities, devices, or areas.
+      selector:
+        target:
+          entity:
+            domain: notify
+    repeat_interval:
+      name: Repeat interval
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 168
+          step: 1
+          unit_of_measurement: hours
+          mode: box
+    pet_name_override:
+      name: Pet name override
+      description: >
+        Optional. When blank, the blueprint uses the Lizard Care device name.
+      default: ""
+      selector:
+        text:
+    notification_title:
+      name: Notification title
+      default: Lizard Care
+      selector:
+        text:
+    notification_message:
+      name: Notification message
+      description: Optional. Leave blank to use the standard message.
+      default: ""
+      selector:
+        text:
+          multiline: true
+
+triggers:
+  - trigger: state
+    entity_id: !input food_removal_status
+    to: due
+    id: due
+  - trigger: state
+    entity_id: !input food_removal_status
+    from: pending
+    to: overdue
+    id: overdue
+  - trigger: state
+    entity_id: !input food_removal_status
+    from: not_needed
+    to: overdue
+    id: overdue
+  - trigger: homeassistant
+    event: start
+    id: resume
+  - trigger: state
+    entity_id: !input food_removal_status
+    to: not_needed
+    id: resolved
+  - trigger: state
+    entity_id: !input food_removal_status
+    to: pending
+    id: resolved
+
+variables:
+  status_entity: !input food_removal_status
+  title_text: !input notification_title
+  configured_message: !input notification_message
+  configured_pet_name: !input pet_name_override
+  pet_name: >
+    {{ configured_pet_name | trim
+       or device_attr(device_id(status_entity), 'name')
+       or 'Your pet' }}
+  message_text: >
+    {{ configured_message | trim
+       or pet_name ~ "'s food is ready to be removed." }}
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ trigger.id in ['due', 'overdue'] or
+         (trigger.id == 'resume' and
+          states(status_entity) in ['due', 'overdue']) }}
+
+actions:
+  - if:
+      - condition: template
+        value_template: >
+          {{ trigger.id == 'due' or
+             (trigger.id == 'overdue' and trigger.from_state is not none and
+              trigger.from_state.state not in ['due', 'overdue']) }}
+    then:
+      - action: notify.send_message
+        target: !input notification_target
+        data:
+          title: "{{ title_text }}"
+          message: "{{ message_text }}"
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ states(status_entity) in ['due', 'overdue'] }}"
+      sequence:
+        - delay:
+            hours: !input repeat_interval
+        - condition: template
+          value_template: "{{ states(status_entity) in ['due', 'overdue'] }}"
+        - action: notify.send_message
+          target: !input notification_target
+          data:
+            title: "{{ title_text }}"
+            message: "{{ message_text }}"
+
+mode: restart
+max_exceeded: silent

@@ -1,0 +1,198 @@
+blueprint:
+  name: Lizard Care — Care Reminders
+  description: >
+    Send scheduled feeding, spot-clean, and full-clean reminders from Lizard
+    Care status sensors. Overdue reminders repeat until the corresponding
+    status sensor is no longer overdue.
+  domain: automation
+  author: Lizard Care
+  source_url: https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/care_reminders.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    feeding_status:
+      name: Feeding Status sensor
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    spot_clean_status:
+      name: Spot Clean Status sensor
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    full_clean_status:
+      name: Full Clean Status sensor
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    notification_target:
+      name: Notification target
+      description: Select one or more notify entities, devices, or areas.
+      selector:
+        target:
+          entity:
+            domain: notify
+    reminder_time:
+      name: Reminder time
+      default: "19:00:00"
+      selector:
+        time:
+    feeding_enabled:
+      name: Feeding reminders
+      default: true
+      selector:
+        boolean:
+    spot_clean_enabled:
+      name: Spot Clean reminders
+      default: true
+      selector:
+        boolean:
+    full_clean_enabled:
+      name: Full Clean reminders
+      default: true
+      selector:
+        boolean:
+    due_today_enabled:
+      name: Due-today notices
+      default: true
+      selector:
+        boolean:
+    overdue_enabled:
+      name: Overdue notices and repeats
+      default: true
+      selector:
+        boolean:
+    overdue_repeat_interval:
+      name: Overdue repeat interval
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 168
+          step: 1
+          unit_of_measurement: hours
+          mode: box
+    pet_name_override:
+      name: Pet name override
+      description: >
+        Optional. When blank, the blueprint uses the Lizard Care device name.
+      default: ""
+      selector:
+        text:
+    notification_title_prefix:
+      name: Notification title
+      default: Lizard Care
+      selector:
+        text:
+
+triggers:
+  - trigger: time
+    at: !input reminder_time
+    id: scheduled
+  - trigger: homeassistant
+    event: start
+    id: resume
+
+variables:
+  feeding_entity: !input feeding_status
+  spot_clean_entity: !input spot_clean_status
+  full_clean_entity: !input full_clean_status
+  feeding_is_enabled: !input feeding_enabled
+  spot_clean_is_enabled: !input spot_clean_enabled
+  full_clean_is_enabled: !input full_clean_enabled
+  send_due_today: !input due_today_enabled
+  send_overdue: !input overdue_enabled
+  title_prefix: !input notification_title_prefix
+  configured_pet_name: !input pet_name_override
+  pet_name: >
+    {{ configured_pet_name | trim
+       or device_attr(device_id(feeding_entity), 'name')
+       or 'Your pet' }}
+
+actions:
+  - choose:
+      - conditions: >
+          {{ trigger.id == 'scheduled' and feeding_is_enabled and
+             ((send_due_today and is_state(feeding_entity, 'due_today')) or
+              (send_overdue and is_state(feeding_entity, 'overdue'))) }}
+        sequence:
+          - action: notify.send_message
+            target: !input notification_target
+            data:
+              title: "{{ title_prefix }}"
+              message: >
+                {{ pet_name }}'s feeding is
+                {{ 'overdue' if is_state(feeding_entity, 'overdue') else 'due today' }}.
+  - choose:
+      - conditions: >
+          {{ trigger.id == 'scheduled' and spot_clean_is_enabled and
+             ((send_due_today and is_state(spot_clean_entity, 'due_today')) or
+              (send_overdue and is_state(spot_clean_entity, 'overdue'))) }}
+        sequence:
+          - action: notify.send_message
+            target: !input notification_target
+            data:
+              title: "{{ title_prefix }}"
+              message: >
+                {{ pet_name }}'s spot clean is
+                {{ 'overdue' if is_state(spot_clean_entity, 'overdue') else 'due today' }}.
+  - choose:
+      - conditions: >
+          {{ trigger.id == 'scheduled' and full_clean_is_enabled and
+             ((send_due_today and is_state(full_clean_entity, 'due_today')) or
+              (send_overdue and is_state(full_clean_entity, 'overdue'))) }}
+        sequence:
+          - action: notify.send_message
+            target: !input notification_target
+            data:
+              title: "{{ title_prefix }}"
+              message: >
+                {{ pet_name }}'s full clean is
+                {{ 'overdue' if is_state(full_clean_entity, 'overdue') else 'due today' }}.
+  - repeat:
+      while:
+        - condition: template
+          value_template: >
+            {{ send_overdue and
+               ((feeding_is_enabled and is_state(feeding_entity, 'overdue')) or
+                (spot_clean_is_enabled and is_state(spot_clean_entity, 'overdue')) or
+                (full_clean_is_enabled and is_state(full_clean_entity, 'overdue'))) }}
+      sequence:
+        - delay:
+            hours: !input overdue_repeat_interval
+        - choose:
+            - conditions: >
+                {{ send_overdue and feeding_is_enabled and
+                   is_state(feeding_entity, 'overdue') }}
+              sequence:
+                - action: notify.send_message
+                  target: !input notification_target
+                  data:
+                    title: "{{ title_prefix }}"
+                    message: "{{ pet_name }}'s feeding is overdue."
+        - choose:
+            - conditions: >
+                {{ send_overdue and spot_clean_is_enabled and
+                   is_state(spot_clean_entity, 'overdue') }}
+              sequence:
+                - action: notify.send_message
+                  target: !input notification_target
+                  data:
+                    title: "{{ title_prefix }}"
+                    message: "{{ pet_name }}'s spot clean is overdue."
+        - choose:
+            - conditions: >
+                {{ send_overdue and full_clean_is_enabled and
+                   is_state(full_clean_entity, 'overdue') }}
+              sequence:
+                - action: notify.send_message
+                  target: !input notification_target
+                  data:
+                    title: "{{ title_prefix }}"
+                    message: "{{ pet_name }}'s full clean is overdue."
+
+mode: restart
+max_exceeded: silent

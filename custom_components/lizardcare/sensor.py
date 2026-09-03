@@ -11,12 +11,11 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
-    async_track_point_in_utc_time,
     async_track_time_change,
     async_track_time_interval,
 )
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import LizardCareConfigEntry
@@ -31,8 +30,13 @@ from .derived import (
     format_scheduled_relative_time,
 )
 from .entity import LizardCareEntity
-from .food_removal import calculate_food_removal_timing
-from .notifications import get_notification_settings
+from .food_removal import (
+    FoodRemovalResult,
+    FoodRemovalStatus,
+    calculate_food_removal_status,
+    get_food_removal_settings,
+)
+from .instructions import CareInstructions, get_care_instructions
 from .profile import get_birth_date, get_pet_profile
 from .schedule import (
     CareSchedule,
@@ -150,6 +154,13 @@ LAST_CARE_ACTIVITY_DESCRIPTION = SensorEntityDescription(
     translation_key="last_care_activity",
     device_class=SensorDeviceClass.ENUM,
     options=[activity.value for activity in CareActivity],
+)
+
+FOOD_REMOVAL_STATUS_DESCRIPTION = SensorEntityDescription(
+    key="food_removal_status",
+    translation_key="food_removal_status",
+    device_class=SensorDeviceClass.ENUM,
+    options=[status.value for status in FoodRemovalStatus],
 )
 
 
@@ -305,6 +316,7 @@ async def async_setup_entry(
                 STATUS_DESCRIPTIONS[0],
                 lambda state: state.last_fed,
                 lambda config: config.feeding_interval_days,
+                lambda instructions: instructions.feeding,
                 time_updater,
             ),
             LizardCareStatusSensor(
@@ -312,6 +324,7 @@ async def async_setup_entry(
                 STATUS_DESCRIPTIONS[1],
                 lambda state: _effective_last_spot_clean(entry, state),
                 lambda config: config.spot_clean_interval_days,
+                lambda instructions: instructions.spot_clean,
                 time_updater,
             ),
             LizardCareStatusSensor(
@@ -319,9 +332,11 @@ async def async_setup_entry(
                 STATUS_DESCRIPTIONS[2],
                 lambda state: state.last_full_clean,
                 lambda config: config.full_clean_interval_days,
+                lambda instructions: instructions.full_clean,
                 time_updater,
             ),
             LizardCareOverallCareStatusSensor(entry, time_updater),
+            LizardCareFoodRemovalStatusSensor(entry, time_updater),
             LizardCareLastCareActivitySensor(entry, time_updater),
         ]
     )
@@ -513,6 +528,7 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         description: SensorEntityDescription,
         last_completed_fn: Callable[[LizardCareData], datetime | None],
         interval_fn: Callable[[CareSchedule], int],
+        instruction_fn: Callable[[CareInstructions], str],
         time_updater: LizardCareSensorTimeUpdater,
     ) -> None:
         """Initialize a care status sensor."""
@@ -520,6 +536,7 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         self._entry = entry
         self._last_completed_fn = last_completed_fn
         self._interval_fn = interval_fn
+        self._instruction_fn = instruction_fn
         self._time_updater = time_updater
 
     async def async_added_to_hass(self) -> None:
@@ -542,15 +559,21 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         return status.value if status is not None else None
 
     @property
-    def extra_state_attributes(self) -> dict[str, int] | None:
-        """Return nonnegative local-calendar due distance attributes."""
-        counts = self._due_day_counts()
-        if counts is None:
-            return None
-        return {
-            "days_until_due": counts.days_until_due,
-            "days_overdue": counts.days_overdue,
+    def extra_state_attributes(self) -> dict[str, int | str | bool]:
+        """Return due distance and optional task reference instructions."""
+        instructions = self._instruction_fn(
+            get_care_instructions(self._entry)
+        )
+        attributes: dict[str, int | str | bool] = {
+            "has_instructions": bool(instructions)
         }
+        if instructions:
+            attributes["instructions"] = instructions
+        counts = self._due_day_counts()
+        if counts is not None:
+            attributes["days_until_due"] = counts.days_until_due
+            attributes["days_overdue"] = counts.days_overdue
+        return attributes
 
     def _due_day_counts(self) -> DueDayCounts | None:
         """Calculate local-calendar distance for this care schedule."""
@@ -559,6 +582,73 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
             self._interval_fn(get_care_schedule(self._entry)),
         )
         return calculate_due_day_counts(next_due)
+
+
+class LizardCareFoodRemovalStatusSensor(LizardCareEntity, SensorEntity):
+    """Show whether food currently needs to be removed."""
+
+    entity_description = FOOD_REMOVAL_STATUS_DESCRIPTION
+
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        time_updater: LizardCareSensorTimeUpdater,
+    ) -> None:
+        """Initialize the food-removal status sensor."""
+        super().__init__(
+            entry.runtime_data,
+            entry.entry_id,
+            FOOD_REMOVAL_STATUS_DESCRIPTION,
+        )
+        self._entry = entry
+        self._time_updater = time_updater
+
+    async def async_added_to_hass(self) -> None:
+        """Update elapsed timing once per minute."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._time_updater.async_add_minute_listener(
+                self.async_write_ha_state
+            )
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return the current derived food-removal status."""
+        return self._result().status.value
+
+    @property
+    def icon(self) -> str:
+        """Return an icon matching the current food-removal status."""
+        return {
+            FoodRemovalStatus.NOT_NEEDED: "mdi:bowl-outline",
+            FoodRemovalStatus.PENDING: "mdi:timer-sand",
+            FoodRemovalStatus.DUE: "mdi:bowl-mix-outline",
+            FoodRemovalStatus.OVERDUE: "mdi:alert-circle-outline",
+        }[self._result().status]
+
+    @property
+    def extra_state_attributes(
+        self,
+    ) -> dict[str, bool | datetime | int | None]:
+        """Return the feeding event and derived removal timing."""
+        result = self._result()
+        return {
+            "food_in_enclosure": self._data.food_in_enclosure,
+            "fed_at": self._data.last_fed,
+            "due_at": result.due_at,
+            "minutes_until_due": result.minutes_until_due,
+            "minutes_overdue": result.minutes_overdue,
+        }
+
+    def _result(self) -> FoodRemovalResult:
+        """Calculate current state from care data and pet options."""
+        settings = get_food_removal_settings(self._entry)
+        return calculate_food_removal_status(
+            food_in_enclosure=self._data.food_in_enclosure,
+            last_fed=self._data.last_fed,
+            remove_after_hours=settings.remove_after_hours,
+        )
 
 
 class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
@@ -579,12 +669,9 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         )
         self._entry = entry
         self._time_updater = time_updater
-        self._food_due_unsub: Callable[[], None] | None = None
-        self._food_due_event: str | None = None
-        self._food_due_at: datetime | None = None
 
     async def async_added_to_hass(self) -> None:
-        """Track local midnight, care changes, and food-removal due time."""
+        """Track local midnight and minute-level food-removal changes."""
         await super().async_added_to_hass()
         self.async_on_remove(
             self._time_updater.async_add_daily_listener(
@@ -592,16 +679,10 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
             )
         )
         self.async_on_remove(
-            self._data.async_add_listener(self._async_care_changed)
+            self._time_updater.async_add_minute_listener(
+                self.async_write_ha_state
+            )
         )
-        self._schedule_food_due_transition()
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Cancel the current food-removal transition callback."""
-        if self._food_due_unsub is not None:
-            self._food_due_unsub()
-            self._food_due_unsub = None
-        await super().async_will_remove_from_hass()
 
     @property
     def native_value(self) -> str:
@@ -666,83 +747,18 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
 
     def _food_removal_status(self) -> CareStatus | None:
         """Return the current contribution from food in the enclosure."""
-        if not self._data.food_in_enclosure:
-            return CareStatus.NOT_DUE
-        last_fed = self._data.last_fed
-        if last_fed is None:
-            return None
-        settings = get_notification_settings(self._entry)
-        now = dt_util.utcnow()
-        feeding_event = last_fed.isoformat()
-        if (
-            self._food_due_event == feeding_event
-            and self._food_due_at is not None
-        ):
-            reminder_at = self._food_due_at
-        else:
-            reminder_at = calculate_food_removal_timing(
-                last_fed,
-                delay_hours=settings.food_removal_delay_hours,
-                basis=settings.food_removal_reminder_basis,
-                feeding_reminder_time=settings.feeding_reminder_time,
-                now=now,
-            ).reminder_at
-        return (
-            CareStatus.OVERDUE
-            if reminder_at <= now
-            else CareStatus.DUE_TODAY
-        )
-
-    @callback
-    def _async_care_changed(self) -> None:
-        """Reschedule a time-only transition after runtime changes."""
-        self._schedule_food_due_transition()
-
-    @callback
-    def _schedule_food_due_transition(self) -> None:
-        """Schedule the exact point when present food becomes overdue."""
-        feeding_event = (
-            self._data.last_fed.isoformat()
-            if self._data.food_in_enclosure
-            and self._data.last_fed is not None
-            else None
-        )
-        if (
-            feeding_event is not None
-            and feeding_event == self._food_due_event
-            and self._food_due_at is not None
-        ):
-            return
-        if self._food_due_unsub is not None:
-            self._food_due_unsub()
-            self._food_due_unsub = None
-        self._food_due_event = None
-        self._food_due_at = None
-        if not self._data.food_in_enclosure or self._data.last_fed is None:
-            return
-        settings = get_notification_settings(self._entry)
-        now = dt_util.utcnow()
-        timing = calculate_food_removal_timing(
-            self._data.last_fed,
-            delay_hours=settings.food_removal_delay_hours,
-            basis=settings.food_removal_reminder_basis,
-            feeding_reminder_time=settings.feeding_reminder_time,
-            now=now,
-        )
-        self._food_due_event = feeding_event
-        self._food_due_at = timing.reminder_at
-        if timing.reminder_at > now:
-            self._food_due_unsub = async_track_point_in_utc_time(
-                self.hass,
-                self._async_food_due,
-                timing.reminder_at,
-            )
-
-    @callback
-    def _async_food_due(self, _now: datetime) -> None:
-        """Refresh when food removal crosses into overdue."""
-        self._food_due_unsub = None
-        self.async_write_ha_state()
+        settings = get_food_removal_settings(self._entry)
+        status = calculate_food_removal_status(
+            food_in_enclosure=self._data.food_in_enclosure,
+            last_fed=self._data.last_fed,
+            remove_after_hours=settings.remove_after_hours,
+        ).status
+        return {
+            FoodRemovalStatus.NOT_NEEDED: CareStatus.NOT_DUE,
+            FoodRemovalStatus.PENDING: CareStatus.NOT_DUE,
+            FoodRemovalStatus.DUE: CareStatus.DUE_TODAY,
+            FoodRemovalStatus.OVERDUE: CareStatus.OVERDUE,
+        }[status]
 
 
 class LizardCareLastCareActivitySensor(LizardCareEntity, SensorEntity):

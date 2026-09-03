@@ -1,56 +1,93 @@
-"""Shared food-removal timing helpers for Lizard Care."""
+"""Derived food-removal timing for Lizard Care."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
+from enum import StrEnum
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
-from .const import FOOD_REMOVAL_BASIS_ACTUAL
+from .const import (
+    CONF_REMOVE_FOOD_AFTER_HOURS,
+    DEFAULT_REMOVE_FOOD_AFTER_HOURS,
+    FOOD_REMOVAL_OVERDUE_AFTER_MINUTES,
+)
+
+
+class FoodRemovalStatus(StrEnum):
+    """Possible derived food-removal states."""
+
+    NOT_NEEDED = "not_needed"
+    PENDING = "pending"
+    DUE = "due"
+    OVERDUE = "overdue"
 
 
 @dataclass(frozen=True, slots=True)
-class FoodRemovalTiming:
-    """Resolved timing for one feeding event."""
+class FoodRemovalSettings:
+    """Resolved food-removal care settings for one pet."""
 
-    reminder_at: datetime
-    notification_at: datetime | None
+    remove_after_hours: int
 
 
-def calculate_food_removal_timing(
+@dataclass(frozen=True, slots=True)
+class FoodRemovalResult:
+    """Derived state and timing details for the current feeding event."""
+
+    status: FoodRemovalStatus
+    due_at: datetime | None
+    minutes_until_due: int
+    minutes_overdue: int
+
+
+def get_food_removal_settings(entry: ConfigEntry) -> FoodRemovalSettings:
+    """Resolve care timing while accepting the legacy option key."""
+    value = entry.options.get(
+        CONF_REMOVE_FOOD_AFTER_HOURS,
+        DEFAULT_REMOVE_FOOD_AFTER_HOURS,
+    )
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        value = DEFAULT_REMOVE_FOOD_AFTER_HOURS
+    return FoodRemovalSettings(remove_after_hours=value)
+
+
+def calculate_food_removal_due_at(
     last_fed: datetime,
+    remove_after_hours: int,
+) -> datetime:
+    """Return the UTC removal time anchored to the actual feeding event."""
+    return dt_util.as_utc(last_fed) + timedelta(hours=remove_after_hours)
+
+
+def calculate_food_removal_status(
     *,
-    delay_hours: int,
-    basis: str,
-    feeding_reminder_time: time,
-    now: datetime,
-) -> FoodRemovalTiming:
-    """Resolve status timing while preserving late-feeding fallback behavior."""
-    actual_due = dt_util.as_utc(
-        last_fed + timedelta(hours=delay_hours)
-    )
-    if basis == FOOD_REMOVAL_BASIS_ACTUAL:
-        return FoodRemovalTiming(actual_due, actual_due)
+    food_in_enclosure: bool,
+    last_fed: datetime | None,
+    remove_after_hours: int,
+    now: datetime | None = None,
+) -> FoodRemovalResult:
+    """Calculate current food-removal state without notification behavior."""
+    if not food_in_enclosure or last_fed is None:
+        return FoodRemovalResult(FoodRemovalStatus.NOT_NEEDED, None, 0, 0)
 
-    local_fed = dt_util.as_local(last_fed)
-    anchor_date = local_fed.date()
-    if local_fed.timetz().replace(tzinfo=None) < feeding_reminder_time:
-        anchor_date -= timedelta(days=1)
-    local_anchor = datetime.combine(
-        anchor_date,
-        feeding_reminder_time,
-        tzinfo=dt_util.get_default_time_zone(),
-    )
-    scheduled_due = dt_util.as_utc(
-        local_anchor + timedelta(hours=delay_hours)
-    )
-    now = dt_util.as_utc(now)
-    if scheduled_due > now:
-        return FoodRemovalTiming(scheduled_due, scheduled_due)
-    if actual_due > now:
-        return FoodRemovalTiming(actual_due, actual_due)
+    now = dt_util.as_utc(now or dt_util.utcnow())
+    due_at = calculate_food_removal_due_at(last_fed, remove_after_hours)
+    seconds_from_due = (now - due_at).total_seconds()
+    if seconds_from_due < 0:
+        return FoodRemovalResult(
+            FoodRemovalStatus.PENDING,
+            due_at,
+            math.ceil(-seconds_from_due / 60),
+            0,
+        )
 
-    # Both candidates are stale. The notification manager intentionally avoids
-    # an immediate initial alert, while status still uses the newer due time.
-    return FoodRemovalTiming(max(scheduled_due, actual_due), None)
+    minutes_overdue = max(math.floor(seconds_from_due / 60), 0)
+    status = (
+        FoodRemovalStatus.OVERDUE
+        if minutes_overdue >= FOOD_REMOVAL_OVERDUE_AFTER_MINUTES
+        else FoodRemovalStatus.DUE
+    )
+    return FoodRemovalResult(status, due_at, 0, minutes_overdue)

@@ -31,7 +31,7 @@
     "step": {
       "init": {
         "title": "Edit pet details",
-        "description": "Update this pet's profile and care intervals.",
+        "description": "Update this pet's profile and care settings.",
         "data": {
           "pet_name": "Pet name",
           "species": "Species",
@@ -42,19 +42,10 @@
           "spot_clean_interval_days": "Spot-clean interval in days",
           "full_clean_interval_days": "Full-clean interval in days",
           "full_clean_satisfies_spot_clean": "Full clean satisfies spot clean",
-          "notification_recipients": "Notification recipients",
-          "feeding_reminders": "Feeding reminders",
-          "spot_clean_reminders": "Spot-clean reminders",
-          "full_clean_reminders": "Full-clean reminders",
-          "food_removal_reminder": "Food-removal reminder",
-          "feeding_reminder_time": "Feeding reminder time",
-          "cleaning_reminder_time": "Cleaning reminder time",
-          "food_removal_delay_hours": "Food-removal delay in hours",
-          "food_removal_reminder_basis": "Food-removal reminder basis",
-          "food_removal_overdue_repeat_hours": "Food removal overdue repeat interval",
-          "feeding_overdue_repeat_hours": "Feeding overdue repeat interval",
-          "spot_clean_overdue_repeat_hours": "Spot-clean overdue repeat interval",
-          "full_clean_overdue_repeat_hours": "Full-clean overdue repeat interval"
+          "feeding_instructions": "Feeding instructions",
+          "spot_clean_instructions": "Spot clean instructions",
+          "full_clean_instructions": "Full clean instructions",
+          "food_removal_delay_hours": "Remove food after (hours)"
         },
         "data_description": {
           "birth_date": "Optional",
@@ -64,19 +55,10 @@
           "spot_clean_interval_days": "Number of days between spot cleans",
           "full_clean_interval_days": "Number of days between full enclosure cleans",
           "full_clean_satisfies_spot_clean": "When enabled, completing a full clean also resets the spot-clean schedule.",
-          "notification_recipients": "Select one or more notify entities. Leave empty to disable delivery.",
-          "feeding_reminders": "Send due and overdue feeding reminders",
-          "spot_clean_reminders": "Send due and overdue spot-clean reminders",
-          "full_clean_reminders": "Send due and overdue full-clean reminders",
-          "food_removal_reminder": "Send food-removal reminders while food remains in the enclosure",
-          "feeding_reminder_time": "Local time for daily feeding reminders",
-          "cleaning_reminder_time": "Local time for daily cleaning reminders",
-          "food_removal_delay_hours": "Hours after the reminder anchor before checking whether food remains",
-          "food_removal_reminder_basis": "Choose whether the delay starts at the actual feeding time or scheduled feeding reminder time",
-          "food_removal_overdue_repeat_hours": "Hours between food-removal reminders while food remains present; enter 0 to disable repeats",
-          "feeding_overdue_repeat_hours": "Hours between overdue feeding reminders; enter 0 to disable repeats",
-          "spot_clean_overdue_repeat_hours": "Hours between overdue spot-clean reminders; enter 0 to disable repeats",
-          "full_clean_overdue_repeat_hours": "Hours between overdue full-clean reminders; enter 0 to disable repeats"
+          "feeding_instructions": "Optional reference instructions shown for this care task.",
+          "spot_clean_instructions": "Optional reference instructions shown for this care task.",
+          "full_clean_instructions": "Optional reference instructions shown for this care task.",
+          "food_removal_delay_hours": "Hours after an actual feeding when food should be removed"
         }
       }
     },
@@ -146,6 +128,15 @@
         "state": {
           "not_due": "Not due",
           "due_today": "Due today",
+          "overdue": "Overdue"
+        }
+      },
+      "food_removal_status": {
+        "name": "Food Removal Status",
+        "state": {
+          "not_needed": "Not needed",
+          "pending": "Pending",
+          "due": "Due",
           "overdue": "Overdue"
         }
       },
