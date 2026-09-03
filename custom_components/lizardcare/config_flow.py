@@ -15,9 +15,15 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CLEANING_SCHEDULE_INTERVAL,
+    CLEANING_SCHEDULE_MONTHLY,
     CONF_BIRTH_DATE,
+    CONF_CLEANING_CYCLE_ANCHOR,
+    CONF_CLEANING_DAY_OF_MONTH,
+    CONF_CLEANING_SCHEDULE_MODE,
     CONF_FEEDING_INSTRUCTIONS,
     CONF_FEEDING_INTERVAL_DAYS,
+    CONF_FULL_CLEAN_EVERY,
     CONF_FULL_CLEAN_INSTRUCTIONS,
     CONF_FULL_CLEAN_INTERVAL_DAYS,
     CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
@@ -69,6 +75,18 @@ def _positive_integer_selector() -> selector.NumberSelector:
     )
 
 
+def _day_of_month_selector() -> selector.NumberSelector:
+    """Return a calendar day selector."""
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=1,
+            max=31,
+            step=1,
+            mode=selector.NumberSelectorMode.BOX,
+        )
+    )
+
+
 def _options_schema() -> vol.Schema:
     """Return the combined profile and schedule options schema."""
     return _profile_schema().extend(
@@ -85,6 +103,26 @@ def _options_schema() -> vol.Schema:
             vol.Required(
                 CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN
             ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_CLEANING_SCHEDULE_MODE
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value=CLEANING_SCHEDULE_INTERVAL,
+                            label="Interval",
+                        ),
+                        selector.SelectOptionDict(
+                            value=CLEANING_SCHEDULE_MONTHLY,
+                            label="Monthly",
+                        ),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Required(CONF_CLEANING_DAY_OF_MONTH): _day_of_month_selector(),
+            vol.Required(CONF_FULL_CLEAN_EVERY): _positive_integer_selector(),
+            vol.Required(CONF_CLEANING_CYCLE_ANCHOR): selector.DateSelector(),
             vol.Optional(CONF_FEEDING_INSTRUCTIONS): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             ),
@@ -177,6 +215,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_FEEDING_INTERVAL_DAYS,
                     CONF_SPOT_CLEAN_INTERVAL_DAYS,
                     CONF_FULL_CLEAN_INTERVAL_DAYS,
+                    CONF_FULL_CLEAN_EVERY,
                     CONF_REMOVE_FOOD_AFTER_HOURS,
                 ):
                     value = _as_positive_int(user_input[key])
@@ -184,6 +223,14 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                         errors[key] = "invalid_interval"
                     else:
                         intervals[key] = value
+
+                cleaning_day = _as_positive_int(
+                    user_input[CONF_CLEANING_DAY_OF_MONTH]
+                )
+                if cleaning_day is None or cleaning_day > 31:
+                    errors[CONF_CLEANING_DAY_OF_MONTH] = "invalid_day_of_month"
+                else:
+                    intervals[CONF_CLEANING_DAY_OF_MONTH] = cleaning_day
 
             if not errors:
                 options = {
@@ -194,6 +241,12 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_NOTES: user_input.get(CONF_NOTES),
                     CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN: user_input[
                         CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN
+                    ],
+                    CONF_CLEANING_SCHEDULE_MODE: user_input[
+                        CONF_CLEANING_SCHEDULE_MODE
+                    ],
+                    CONF_CLEANING_CYCLE_ANCHOR: user_input[
+                        CONF_CLEANING_CYCLE_ANCHOR
                     ],
                     CONF_FEEDING_INSTRUCTIONS: clean_instruction(
                         user_input.get(CONF_FEEDING_INSTRUCTIONS)
@@ -226,6 +279,12 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             CONF_FULL_CLEAN_INTERVAL_DAYS: schedule.full_clean_interval_days,
             CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN: (
                 schedule.full_clean_satisfies_spot_clean
+            ),
+            CONF_CLEANING_SCHEDULE_MODE: schedule.cleaning_schedule_mode,
+            CONF_CLEANING_DAY_OF_MONTH: schedule.cleaning_day_of_month,
+            CONF_FULL_CLEAN_EVERY: schedule.full_clean_every,
+            CONF_CLEANING_CYCLE_ANCHOR: (
+                schedule.cleaning_cycle_anchor.isoformat()
             ),
             CONF_FEEDING_INSTRUCTIONS: instructions.feeding,
             CONF_SPOT_CLEAN_INSTRUCTIONS: instructions.spot_clean,

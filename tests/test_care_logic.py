@@ -66,6 +66,7 @@ def test_full_clean_still_satisfies_spot_clean() -> None:
 def test_legacy_notification_options_do_not_affect_care_helpers() -> None:
     """Obsolete options are ignored while schedules/instructions still load."""
     entry = SimpleNamespace(
+        data={},
         options={
             "feeding_interval_days": 3,
             "feeding_instructions": "Offer insects",

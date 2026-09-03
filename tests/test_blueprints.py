@@ -29,3 +29,41 @@ def test_blueprints_are_valid_yaml_with_automation_schema() -> None:
         assert document["blueprint"]["domain"] == "automation"
         assert document["triggers"]
         assert document["actions"]
+
+
+def test_care_reminder_blueprint_trigger_architecture() -> None:
+    """Due-today, immediate-overdue, repeat, and recovery triggers coexist."""
+    path = BLUEPRINT_DIR / "care_reminders.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    trigger_ids = {trigger["id"] for trigger in document["triggers"]}
+    assert trigger_ids == {
+        "due_today",
+        "feeding_overdue",
+        "spot_clean_overdue",
+        "full_clean_overdue",
+        "overdue_repeat",
+        "startup",
+    }
+    assert not any("repeat" in action for action in document["actions"])
+
+
+def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
+    """Existing automations retain all previously configurable input names."""
+    path = BLUEPRINT_DIR / "care_reminders.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    inputs = document["blueprint"]["input"]
+    assert {
+        "feeding_status",
+        "spot_clean_status",
+        "full_clean_status",
+        "notification_target",
+        "reminder_time",
+        "feeding_enabled",
+        "spot_clean_enabled",
+        "full_clean_enabled",
+        "due_today_enabled",
+        "overdue_enabled",
+        "overdue_repeat_interval",
+        "pet_name_override",
+        "notification_title_prefix",
+    } <= inputs.keys()

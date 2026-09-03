@@ -46,13 +46,37 @@ The sensor includes `food_in_enclosure`, `fed_at`, `due_at`,
 or correcting care timestamps updates the derived state through the existing
 care-state architecture.
 
+## Cleaning schedules
+
+Cleaning can use either scheduling mode:
+
+- **Interval** preserves the original behavior: the next Spot Clean and Full
+  Clean dates are calculated from their configured day intervals and latest
+  completion timestamps.
+- **Monthly** anchors cleaning to a selected day of every calendar month. If
+  that day does not exist in a month, Lizard Care uses the month's last valid
+  day—for example, day 31 becomes February 28 (or 29 in a leap year) and April
+  30.
+
+Monthly mode also provides **Full clean every** and **Full-clean cycle anchor**.
+The anchor's month is occurrence 1, and every Nth occurrence is a Full Clean.
+For an October anchor and a cadence of 3, October and November are Spot Cleans,
+December is a Full Clean, and the pattern repeats without drifting.
+
+Completing a scheduled cleaning late keeps the next cleaning on its configured
+calendar day. A completion up to seven days early counts for the upcoming
+occurrence. Because occurrence numbers are derived from the saved anchor and
+calendar month, restarts, reloads, and duplicate completion presses do not
+advance a mutable counter. On a Full Clean occurrence, Spot Clean is skipped;
+completing the Full Clean satisfies that monthly cleaning occurrence.
+
 ## Automation blueprints
 
 The repository includes:
 
-- **Lizard Care — Care Reminders** — sends a daily feeding, spot-clean, and
-  full-clean reminder based on the three Lizard Care status sensors, then
-  repeats only tasks that remain overdue.
+- **Lizard Care — Care Reminders** — sends `due_today` notices at the selected
+  daily time, sends immediately when feeding, spot cleaning, or full cleaning
+  becomes `overdue`, and repeats each overdue task independently.
 - **Lizard Care — Food Removal Reminder** — sends when Food Removal Status
   becomes `due` and repeats while it remains `due` or `overdue`.
 
@@ -81,8 +105,12 @@ Alternatively, copy both repository files into
    interval.
 5. Save the automation.
 
-The normal reminder runs at the selected time. Repeats occur only for sensors
-still in `overdue`; recording or correcting the task naturally ends the loop.
+The selected time controls only `due_today` notices. An `overdue` transition
+sends immediately, and a minute-level check honors the configured repeat
+interval independently for every task. Recording or correcting a task stops
+its overdue messages without affecting other overdue tasks. Startup recovery
+checks tasks that are already overdue; automation reloads resume the periodic
+evaluation without waiting for the daily time.
 
 ### Create a food-removal automation
 
@@ -112,4 +140,5 @@ python3 -m pytest
 In Home Assistant, verify config-entry setup and reload, profile editing,
 persistent care timestamps, all action buttons, manual corrections, due-status
 transitions, Full Clean satisfying Spot Clean, care instructions, Food Removal
-Status transitions, and automations created from both blueprints.
+Status transitions, interval and monthly cleaning schedules, and automations
+created from both blueprints.

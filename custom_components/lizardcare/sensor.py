@@ -19,6 +19,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from . import LizardCareConfigEntry
+from .const import CLEANING_SCHEDULE_MONTHLY
 from .coordinator import LizardCareData
 from .derived import (
     CareActivity,
@@ -39,12 +40,13 @@ from .food_removal import (
 from .instructions import CareInstructions, get_care_instructions
 from .profile import get_birth_date, get_pet_profile
 from .schedule import (
-    CareSchedule,
     CareStatus,
+    MonthlyCleaningPlan,
     OverallCareResult,
     OverallCareStatus,
     calculate_care_status,
     calculate_effective_last_spot_clean,
+    calculate_monthly_cleaning_plan,
     calculate_next_due,
     calculate_overall_care_status,
     get_care_schedule,
@@ -293,45 +295,45 @@ async def async_setup_entry(
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[0],
-                lambda state: state.last_fed,
-                lambda config: config.feeding_interval_days,
+                _next_feeding_due,
+                "feeding",
                 time_updater,
             ),
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[1],
-                lambda state: _effective_last_spot_clean(entry, state),
-                lambda config: config.spot_clean_interval_days,
+                _next_spot_clean_due,
+                "spot_clean",
                 time_updater,
             ),
             LizardCareNextDueSensor(
                 entry,
                 NEXT_DUE_DESCRIPTIONS[2],
-                lambda state: state.last_full_clean,
-                lambda config: config.full_clean_interval_days,
+                _next_full_clean_due,
+                "full_clean",
                 time_updater,
             ),
             LizardCareStatusSensor(
                 entry,
                 STATUS_DESCRIPTIONS[0],
-                lambda state: state.last_fed,
-                lambda config: config.feeding_interval_days,
+                _next_feeding_due,
+                "feeding",
                 lambda instructions: instructions.feeding,
                 time_updater,
             ),
             LizardCareStatusSensor(
                 entry,
                 STATUS_DESCRIPTIONS[1],
-                lambda state: _effective_last_spot_clean(entry, state),
-                lambda config: config.spot_clean_interval_days,
+                _next_spot_clean_due,
+                "spot_clean",
                 lambda instructions: instructions.spot_clean,
                 time_updater,
             ),
             LizardCareStatusSensor(
                 entry,
                 STATUS_DESCRIPTIONS[2],
-                lambda state: state.last_full_clean,
-                lambda config: config.full_clean_interval_days,
+                _next_full_clean_due,
+                "full_clean",
                 lambda instructions: instructions.full_clean,
                 time_updater,
             ),
@@ -480,15 +482,17 @@ class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):
         self,
         entry: LizardCareConfigEntry,
         description: SensorEntityDescription,
-        last_completed_fn: Callable[[LizardCareData], datetime | None],
-        interval_fn: Callable[[CareSchedule], int],
+        next_due_fn: Callable[
+            [LizardCareConfigEntry, LizardCareData], datetime | None
+        ],
+        task_key: str,
         time_updater: LizardCareSensorTimeUpdater,
     ) -> None:
         """Initialize a next-due sensor."""
         super().__init__(entry.runtime_data, entry.entry_id, description)
         self._entry = entry
-        self._last_completed_fn = last_completed_fn
-        self._interval_fn = interval_fn
+        self._next_due_fn = next_due_fn
+        self._task_key = task_key
         self._time_updater = time_updater
 
     async def async_added_to_hass(self) -> None:
@@ -503,18 +507,27 @@ class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):
     @property
     def native_value(self) -> datetime | None:
         """Return the calculated next due timestamp."""
-        return calculate_next_due(
-            self._last_completed_fn(self._data),
-            self._interval_fn(get_care_schedule(self._entry)),
-        )
+        return self._next_due_fn(self._entry, self._data)
 
     @property
-    def extra_state_attributes(self) -> dict[str, str] | None:
+    def extra_state_attributes(
+        self,
+    ) -> dict[str, str | int | datetime] | None:
         """Return a calendar-aware relative due description."""
         value = self.native_value
         if value is None:
             return None
-        return {"relative_time": format_scheduled_relative_time(value)}
+        attributes: dict[str, str | int | datetime] = {
+            "relative_time": format_scheduled_relative_time(value)
+        }
+        attributes.update(
+            _cleaning_schedule_attributes(
+                self._entry,
+                self._data,
+                self._task_key,
+            )
+        )
+        return attributes
 
 
 class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
@@ -526,16 +539,18 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         self,
         entry: LizardCareConfigEntry,
         description: SensorEntityDescription,
-        last_completed_fn: Callable[[LizardCareData], datetime | None],
-        interval_fn: Callable[[CareSchedule], int],
+        next_due_fn: Callable[
+            [LizardCareConfigEntry, LizardCareData], datetime | None
+        ],
+        task_key: str,
         instruction_fn: Callable[[CareInstructions], str],
         time_updater: LizardCareSensorTimeUpdater,
     ) -> None:
         """Initialize a care status sensor."""
         super().__init__(entry.runtime_data, entry.entry_id, description)
         self._entry = entry
-        self._last_completed_fn = last_completed_fn
-        self._interval_fn = interval_fn
+        self._next_due_fn = next_due_fn
+        self._task_key = task_key
         self._instruction_fn = instruction_fn
         self._time_updater = time_updater
 
@@ -551,15 +566,21 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return the calculated schedule status."""
-        next_due = calculate_next_due(
-            self._last_completed_fn(self._data),
-            self._interval_fn(get_care_schedule(self._entry)),
-        )
+        next_due = self._next_due_fn(self._entry, self._data)
+        schedule = get_care_schedule(self._entry)
+        if (
+            self._task_key == "spot_clean"
+            and schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY
+            and schedule.full_clean_every == 1
+        ):
+            return CareStatus.NOT_DUE.value
         status = calculate_care_status(next_due)
         return status.value if status is not None else None
 
     @property
-    def extra_state_attributes(self) -> dict[str, int | str | bool]:
+    def extra_state_attributes(
+        self,
+    ) -> dict[str, int | str | bool | datetime]:
         """Return due distance and optional task reference instructions."""
         instructions = self._instruction_fn(
             get_care_instructions(self._entry)
@@ -573,14 +594,18 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         if counts is not None:
             attributes["days_until_due"] = counts.days_until_due
             attributes["days_overdue"] = counts.days_overdue
+        attributes.update(
+            _cleaning_schedule_attributes(
+                self._entry,
+                self._data,
+                self._task_key,
+            )
+        )
         return attributes
 
     def _due_day_counts(self) -> DueDayCounts | None:
         """Calculate local-calendar distance for this care schedule."""
-        next_due = calculate_next_due(
-            self._last_completed_fn(self._data),
-            self._interval_fn(get_care_schedule(self._entry)),
-        )
+        next_due = self._next_due_fn(self._entry, self._data)
         return calculate_due_day_counts(next_due)
 
 
@@ -700,14 +725,24 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         }[self._calculate_result().status]
 
     @property
-    def extra_state_attributes(self) -> dict[str, list[str] | str]:
+    def extra_state_attributes(
+        self,
+    ) -> dict[str, list[str] | str | int | datetime]:
         """Explain which care items contribute to the aggregate state."""
         result = self._calculate_result()
-        return {
+        attributes: dict[str, list[str] | str | int | datetime] = {
             "attention_items": list(result.attention_items),
             "overdue_items": list(result.overdue_items),
             "summary": _care_status_summary(result),
         }
+        attributes.update(
+            _cleaning_schedule_attributes(
+                self._entry,
+                self._data,
+                "spot_clean",
+            )
+        )
+        return attributes
 
     def _calculate_result(self) -> OverallCareResult:
         """Calculate current status directly from runtime and options data."""
@@ -723,24 +758,16 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         )
         if self._data.food_in_enclosure:
             item_statuses["food_removal"] = self._food_removal_status()
-        item_statuses["spot_clean"] = calculate_care_status(
-            calculate_next_due(
-                calculate_effective_last_spot_clean(
-                    self._data.last_spot_clean,
-                    self._data.last_full_clean,
-                    full_clean_satisfies_spot_clean=(
-                        schedule.full_clean_satisfies_spot_clean
-                    ),
-                ),
-                schedule.spot_clean_interval_days,
-            ),
+        item_statuses["spot_clean"] = _cleaning_status(
+            self._entry,
+            self._data,
+            "spot_clean",
             today,
         )
-        item_statuses["full_clean"] = calculate_care_status(
-            calculate_next_due(
-                self._data.last_full_clean,
-                schedule.full_clean_interval_days,
-            ),
+        item_statuses["full_clean"] = _cleaning_status(
+            self._entry,
+            self._data,
+            "full_clean",
             today,
         )
         return calculate_overall_care_status(item_statuses)
@@ -852,6 +879,106 @@ def _effective_last_spot_clean(
             schedule.full_clean_satisfies_spot_clean
         ),
     )
+
+
+def _monthly_cleaning_plan(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+) -> MonthlyCleaningPlan:
+    """Return the deterministic monthly plan for current persisted state."""
+    return calculate_monthly_cleaning_plan(
+        get_care_schedule(entry),
+        data.last_spot_clean,
+        data.last_full_clean,
+    )
+
+
+def _next_feeding_due(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+) -> datetime | None:
+    """Return the unchanged interval-based feeding due timestamp."""
+    return calculate_next_due(
+        data.last_fed,
+        get_care_schedule(entry).feeding_interval_days,
+    )
+
+
+def _next_spot_clean_due(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+) -> datetime | None:
+    """Return the next spot-clean date for the configured schedule mode."""
+    schedule = get_care_schedule(entry)
+    if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY:
+        return _monthly_cleaning_plan(entry, data).next_spot_clean
+    return calculate_next_due(
+        _effective_last_spot_clean(entry, data),
+        schedule.spot_clean_interval_days,
+    )
+
+
+def _next_full_clean_due(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+) -> datetime | None:
+    """Return the next full-clean date for the configured schedule mode."""
+    schedule = get_care_schedule(entry)
+    if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY:
+        return _monthly_cleaning_plan(entry, data).next_full_clean
+    return calculate_next_due(
+        data.last_full_clean,
+        schedule.full_clean_interval_days,
+    )
+
+
+def _cleaning_status(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+    task_key: str,
+    today: date | None = None,
+) -> CareStatus | None:
+    """Return a cleaning status, including an intentionally skipped Spot Clean."""
+    schedule = get_care_schedule(entry)
+    if (
+        task_key == "spot_clean"
+        and schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY
+        and schedule.full_clean_every == 1
+    ):
+        return CareStatus.NOT_DUE
+    next_due = (
+        _next_spot_clean_due(entry, data)
+        if task_key == "spot_clean"
+        else _next_full_clean_due(entry, data)
+    )
+    return calculate_care_status(next_due, today)
+
+
+def _cleaning_schedule_attributes(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+    task_key: str,
+) -> dict[str, str | int | datetime]:
+    """Return monthly context for existing cleaning entities."""
+    if task_key not in ("spot_clean", "full_clean"):
+        return {}
+    schedule = get_care_schedule(entry)
+    attributes: dict[str, str | int | datetime] = {
+        "schedule_mode": schedule.cleaning_schedule_mode,
+    }
+    if schedule.cleaning_schedule_mode != CLEANING_SCHEDULE_MONTHLY:
+        return attributes
+    plan = _monthly_cleaning_plan(entry, data)
+    attributes.update(
+        {
+            "scheduled_day": schedule.cleaning_day_of_month,
+            "cleaning_occurrence_type": plan.cleaning_occurrence_type.value,
+            "next_cleaning": plan.next_cleaning,
+            "next_full_clean": plan.next_full_clean,
+            "occurrence_number": plan.occurrence_number,
+        }
+    )
+    return attributes
 
 
 def _care_status_summary(result: OverallCareResult) -> str:
