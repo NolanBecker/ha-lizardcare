@@ -66,84 +66,69 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "full_clean_enabled",
         "due_today_enabled",
         "overdue_enabled",
-        "separate_overdue_repeat_intervals",
-        "feeding_overdue_repeat_interval_minutes",
-        "cleaning_overdue_repeat_interval_minutes",
-        "overdue_repeat_interval",
-        "overdue_repeat_interval_minutes",
+        "feeding_overdue_repeat_interval",
+        "feeding_overdue_repeat_interval_unit",
+        "cleaning_overdue_repeat_interval",
+        "cleaning_overdue_repeat_interval_unit",
         "pet_name_override",
         "notification_title_prefix",
     } <= inputs.keys()
 
 
-def test_care_reminder_minute_interval_selector() -> None:
-    """The primary repeat input supports quarter-hour through weekly values."""
-    path = BLUEPRINT_DIR / "care_reminders.yaml"
-    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
-    inputs = document["blueprint"]["input"]
-    minute_input = inputs["overdue_repeat_interval_minutes"]
-    selector = minute_input["selector"]["number"]
-
-    assert minute_input["default"] == 60
-    assert selector == {
-        "min": 15,
-        "max": 10080,
-        "step": 15,
-        "unit_of_measurement": "minutes",
-        "mode": "box",
-    }
-
-
-def test_legacy_hour_interval_remains_backward_compatible() -> None:
-    """Saved hourly values remain available while omitted values use minutes."""
-    path = BLUEPRINT_DIR / "care_reminders.yaml"
-    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
-    legacy_input = document["blueprint"]["input"][
-        "overdue_repeat_interval"
-    ]
-
-    assert legacy_input["default"] == 0
-    assert legacy_input["selector"]["number"]["unit_of_measurement"] == "hours"
-
-
 def test_separate_repeat_interval_inputs() -> None:
-    """Category-specific controls have clear defaults and minute selectors."""
+    """Category-specific value and unit controls have clear defaults."""
     path = BLUEPRINT_DIR / "care_reminders.yaml"
     document = yaml.load(path.read_text(), Loader=BlueprintLoader)
     inputs = document["blueprint"]["input"]
 
-    assert inputs["separate_overdue_repeat_intervals"]["default"] is False
-    for key, expected_default in (
-        ("feeding_overdue_repeat_interval_minutes", 60),
-        ("cleaning_overdue_repeat_interval_minutes", 1440),
+    for prefix, expected_default in (
+        ("feeding", 1),
+        ("cleaning", 24),
     ):
-        repeat_input = inputs[key]
+        repeat_input = inputs[f"{prefix}_overdue_repeat_interval"]
         selector = repeat_input["selector"]["number"]
         assert repeat_input["default"] == expected_default
-        assert selector["min"] == 15
+        assert selector["min"] == 1
         assert selector["max"] == 10080
-        assert selector["step"] == 15
-        assert selector["unit_of_measurement"] == "minutes"
+        assert selector["step"] == 1
+        unit_input = inputs[f"{prefix}_overdue_repeat_interval_unit"]
+        assert unit_input["default"] == "hours"
+        assert {option["value"] for option in unit_input["selector"]["select"]["options"]} == {
+            "minutes",
+            "hours",
+        }
 
 
 @pytest.mark.parametrize(
-    ("minutes", "legacy_hours", "expected_minutes"),
+    ("value", "unit", "expected_minutes"),
     [
-        (30, 0, 30),
-        (60, 0, 60),
-        (90, 0, 90),
-        (240, 0, 240),
-        (60, 1, 60),
+        (30, "minutes", 30),
+        (1, "hours", 60),
+        (2, "hours", 120),
+        (24, "hours", 1440),
+        (48, "hours", 2880),
     ],
 )
 def test_repeat_interval_resolution(
-    minutes: int,
-    legacy_hours: int,
-    expected_minutes: int,
+    value: int, unit: str, expected_minutes: int
 ) -> None:
-    """Minute intervals work and a saved legacy hour value takes precedence."""
-    interval_minutes = legacy_hours * 60 if legacy_hours > 0 else minutes
+    """Minute values remain unchanged and hour values normalize to minutes."""
+    interval_minutes = _normalize_interval(value, unit)
     assert interval_minutes == expected_minutes
+
+
+def _normalize_interval(value: int, unit: str) -> int:
+    """Mirror the blueprint's shared value/unit normalization."""
+    return value * 60 if unit == "hours" else value
+
+
+def test_feeding_and_cleaning_intervals_normalize_independently() -> None:
+    """Each category can use a different value and unit."""
+    feeding_minutes = _normalize_interval(30, "minutes")
+    cleaning_minutes = _normalize_interval(24, "hours")
+
+    assert feeding_minutes == 30
+    assert cleaning_minutes == 1440
 
 
 def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
@@ -152,7 +137,8 @@ def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
         BLUEPRINT_DIR / "care_reminders.yaml"
     ).read_text()
 
-    assert "legacy_repeat_hours | int * 60" in blueprint
+    assert "feeding_repeat_value | int * 60" in blueprint
+    assert "cleaning_repeat_value | int * 60" in blueprint
     assert "now().toordinal() * 1440" in blueprint
     assert blueprint.count("is_feeding_repeat_boundary and") == 1
     assert blueprint.count("is_cleaning_repeat_boundary and") == 2
@@ -161,39 +147,15 @@ def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
     assert "\n  repeat_hours:" not in blueprint
 
 
-@pytest.mark.parametrize(
-    (
-        "separate",
-        "global_minutes",
-        "legacy_hours",
-        "feeding_minutes",
-        "cleaning_minutes",
-        "expected_feeding",
-        "expected_cleaning",
-    ),
-    [
-        (True, 60, 0, 60, 1440, 60, 1440),
-        (False, 30, 0, 60, 1440, 30, 30),
-        (False, 60, 1, 60, 1440, 60, 60),
-    ],
-)
-def test_category_repeat_interval_resolution(
-    separate: bool,
-    global_minutes: int,
-    legacy_hours: int,
-    feeding_minutes: int,
-    cleaning_minutes: int,
-    expected_feeding: int,
-    expected_cleaning: int,
-) -> None:
-    """Separate settings are opt-in and legacy global settings stay stable."""
-    global_interval = (
-        legacy_hours * 60 if legacy_hours > 0 else global_minutes
-    )
-    resolved_feeding = feeding_minutes if separate else global_interval
-    resolved_cleaning = cleaning_minutes if separate else global_interval
-    assert resolved_feeding == expected_feeding
-    assert resolved_cleaning == expected_cleaning
+def test_removed_legacy_inputs_are_absent() -> None:
+    """The blueprint schema no longer exposes compatibility-only controls."""
+    path = BLUEPRINT_DIR / "care_reminders.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    inputs = document["blueprint"]["input"]
+
+    assert "separate_overdue_repeat_intervals" not in inputs
+    assert "overdue_repeat_interval_minutes" not in inputs
+    assert "overdue_repeat_interval" not in inputs
 
 
 def _is_boundary(value: datetime, interval_minutes: int) -> bool:

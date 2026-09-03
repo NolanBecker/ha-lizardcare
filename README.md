@@ -102,10 +102,10 @@ Alternatively, copy both repository files into
 3. Choose one pet's Feeding Status, Spot Clean Status, and Full Clean Status
    sensors.
 4. Choose the notify target, reminder time, enabled care categories, and
-   overdue repeat behavior. Enable **Use separate feeding and cleaning repeat
-   intervals** to configure Feeding independently from Spot Clean and Full
-   Clean. Feeding defaults to 60 minutes and cleaning defaults to 1,440
-   minutes; both support 15 to 10,080 minutes in 15-minute steps.
+   overdue repeat intervals. Each category has a numeric value and an
+   independent **Minutes** or **Hours** unit. Feeding defaults to **1 hour**;
+   Spot Clean and Full Clean share a cleaning interval that defaults to
+   **24 hours**.
 5. Save the automation.
 
 The selected time controls only `due_today` notices. An `overdue` transition
@@ -118,12 +118,11 @@ affecting other overdue tasks. Startup recovery checks tasks that are already
 overdue; automation reloads resume the same wall-clock cadence without waiting
 for the daily time or starting a new countdown.
 
-Automations created with an older blueprint version remain compatible. Their
-saved **Legacy overdue repeat interval (hours)** value continues to be treated
-as hours and takes precedence when nonzero. The existing global minute interval
-also remains in use until **Use separate feeding and cleaning repeat intervals**
-is enabled. Existing automations do not need to be recreated: edit one and
-enable the toggle when you are ready to use the separate cadences.
+After re-importing this blueprint over an older version, edit and save each
+existing care-reminder automation once. Home Assistant displays the new Feeding
+and Cleaning value/unit inputs with their defaults; the removed global and
+legacy interval inputs are no longer used. The automation does not need to be
+recreated.
 
 ### Create a food-removal automation
 

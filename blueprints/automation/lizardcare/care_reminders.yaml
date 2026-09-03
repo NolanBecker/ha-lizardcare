@@ -67,64 +67,49 @@ blueprint:
       default: true
       selector:
         boolean:
-    separate_overdue_repeat_intervals:
-      name: Use separate feeding and cleaning repeat intervals
-      description: >
-        Enable separate repeat cadences below. Leave disabled to keep using
-        the existing global interval for all care tasks.
-      default: false
-      selector:
-        boolean:
-    feeding_overdue_repeat_interval_minutes:
+    feeding_overdue_repeat_interval:
       name: Feeding overdue repeat interval
-      description: How often to repeat overdue feeding reminders.
-      default: 60
+      description: Numeric interval between overdue feeding reminders.
+      default: 1
       selector:
         number:
-          min: 15
+          min: 1
           max: 10080
-          step: 15
-          unit_of_measurement: minutes
+          step: 1
           mode: box
-    cleaning_overdue_repeat_interval_minutes:
+    feeding_overdue_repeat_interval_unit:
+      name: Feeding overdue repeat interval unit
+      default: hours
+      selector:
+        select:
+          options:
+            - label: Minutes
+              value: minutes
+            - label: Hours
+              value: hours
+          mode: dropdown
+    cleaning_overdue_repeat_interval:
       name: Cleaning overdue repeat interval
       description: >
-        How often to repeat overdue Spot Clean and Full Clean reminders.
-      default: 1440
+        Numeric interval between overdue Spot Clean and Full Clean reminders.
+      default: 24
       selector:
         number:
-          min: 15
+          min: 1
           max: 10080
-          step: 15
-          unit_of_measurement: minutes
-          mode: box
-    overdue_repeat_interval_minutes:
-      name: Legacy global overdue repeat interval
-      description: >
-        Compatibility setting used for all tasks when separate intervals are
-        disabled.
-      default: 60
-      selector:
-        number:
-          min: 15
-          max: 10080
-          step: 15
-          unit_of_measurement: minutes
-          mode: box
-    overdue_repeat_interval:
-      name: Legacy overdue repeat interval (hours)
-      description: >
-        Compatibility setting for existing automations. Leave at 0 for the
-        minute-based interval above. Existing nonzero values continue to be
-        interpreted as hours and take precedence.
-      default: 0
-      selector:
-        number:
-          min: 0
-          max: 168
           step: 1
-          unit_of_measurement: hours
           mode: box
+    cleaning_overdue_repeat_interval_unit:
+      name: Cleaning overdue repeat interval unit
+      default: hours
+      selector:
+        select:
+          options:
+            - label: Minutes
+              value: minutes
+            - label: Hours
+              value: hours
+          mode: dropdown
     pet_name_override:
       name: Pet name override
       description: >
@@ -170,23 +155,18 @@ variables:
   full_clean_is_enabled: !input full_clean_enabled
   send_due_today: !input due_today_enabled
   send_overdue: !input overdue_enabled
-  use_separate_repeat_intervals: !input separate_overdue_repeat_intervals
-  feeding_repeat_minutes: !input feeding_overdue_repeat_interval_minutes
-  cleaning_repeat_minutes: !input cleaning_overdue_repeat_interval_minutes
-  repeat_minutes: !input overdue_repeat_interval_minutes
-  legacy_repeat_hours: !input overdue_repeat_interval
-  global_repeat_interval_minutes: >
-    {% if legacy_repeat_hours | int(0) > 0 %}
-      {{ legacy_repeat_hours | int * 60 }}
-    {% else %}
-      {{ repeat_minutes | int }}
-    {% endif %}
+  feeding_repeat_value: !input feeding_overdue_repeat_interval
+  feeding_repeat_unit: !input feeding_overdue_repeat_interval_unit
+  cleaning_repeat_value: !input cleaning_overdue_repeat_interval
+  cleaning_repeat_unit: !input cleaning_overdue_repeat_interval_unit
   feeding_repeat_interval_minutes: >
-    {{ feeding_repeat_minutes | int if use_separate_repeat_intervals
-       else global_repeat_interval_minutes | int }}
+    {{ feeding_repeat_value | int * 60
+       if feeding_repeat_unit == 'hours'
+       else feeding_repeat_value | int }}
   cleaning_repeat_interval_minutes: >
-    {{ cleaning_repeat_minutes | int if use_separate_repeat_intervals
-       else global_repeat_interval_minutes | int }}
+    {{ cleaning_repeat_value | int * 60
+       if cleaning_repeat_unit == 'hours'
+       else cleaning_repeat_value | int }}
   wall_clock_minutes: >
     {{ now().toordinal() * 1440 + now().hour * 60 + now().minute }}
   is_feeding_repeat_boundary: >
