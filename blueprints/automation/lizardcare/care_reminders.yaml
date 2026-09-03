@@ -66,12 +66,27 @@ blueprint:
       default: true
       selector:
         boolean:
-    overdue_repeat_interval:
+    overdue_repeat_interval_minutes:
       name: Overdue repeat interval
-      default: 1
+      description: Time between overdue reminders, in minutes.
+      default: 60
       selector:
         number:
-          min: 1
+          min: 15
+          max: 10080
+          step: 15
+          unit_of_measurement: minutes
+          mode: box
+    overdue_repeat_interval:
+      name: Legacy overdue repeat interval (hours)
+      description: >
+        Compatibility setting for existing automations. Leave at 0 for the
+        minute-based interval above. Existing nonzero values continue to be
+        interpreted as hours and take precedence.
+      default: 0
+      selector:
+        number:
+          min: 0
           max: 168
           step: 1
           unit_of_measurement: hours
@@ -121,7 +136,14 @@ variables:
   full_clean_is_enabled: !input full_clean_enabled
   send_due_today: !input due_today_enabled
   send_overdue: !input overdue_enabled
-  repeat_hours: !input overdue_repeat_interval
+  repeat_minutes: !input overdue_repeat_interval_minutes
+  legacy_repeat_hours: !input overdue_repeat_interval
+  repeat_interval_seconds: >
+    {% if legacy_repeat_hours | int(0) > 0 %}
+      {{ legacy_repeat_hours | int * 3600 }}
+    {% else %}
+      {{ repeat_minutes | int * 60 }}
+    {% endif %}
   title_prefix: !input notification_title_prefix
   configured_pet_name: !input pet_name_override
   pet_name: >
@@ -166,7 +188,7 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[feeding_entity].last_changed) %}
-          {% set interval = repeat_hours | int * 3600 %}
+          {% set interval = repeat_interval_seconds | int %}
           {{ send_overdue and feeding_is_enabled and
              is_state(feeding_entity, 'overdue') and
              (trigger.id in ['feeding_overdue', 'startup'] or
@@ -182,7 +204,7 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[spot_clean_entity].last_changed) %}
-          {% set interval = repeat_hours | int * 3600 %}
+          {% set interval = repeat_interval_seconds | int %}
           {{ send_overdue and spot_clean_is_enabled and
              is_state(spot_clean_entity, 'overdue') and
              (trigger.id in ['spot_clean_overdue', 'startup'] or
@@ -198,7 +220,7 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[full_clean_entity].last_changed) %}
-          {% set interval = repeat_hours | int * 3600 %}
+          {% set interval = repeat_interval_seconds | int %}
           {{ send_overdue and full_clean_is_enabled and
              is_state(full_clean_entity, 'overdue') and
              (trigger.id in ['full_clean_overdue', 'startup'] or

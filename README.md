@@ -101,8 +101,9 @@ Alternatively, copy both repository files into
 2. Find **Lizard Care — Care Reminders** and select **Create automation**.
 3. Choose one pet's Feeding Status, Spot Clean Status, and Full Clean Status
    sensors.
-4. Choose the notify target, reminder time, enabled care categories, and repeat
-   interval.
+4. Choose the notify target, reminder time, enabled care categories, and
+   overdue repeat interval. The repeat interval defaults to 60 minutes and
+   supports values from 15 to 10,080 minutes in 15-minute steps.
 5. Save the automation.
 
 The selected time controls only `due_today` notices. An `overdue` transition
@@ -111,6 +112,12 @@ interval independently for every task. Recording or correcting a task stops
 its overdue messages without affecting other overdue tasks. Startup recovery
 checks tasks that are already overdue; automation reloads resume the periodic
 evaluation without waiting for the daily time.
+
+Automations created with an older blueprint version remain compatible. Their
+saved **Legacy overdue repeat interval (hours)** value continues to be treated
+as hours and takes precedence when nonzero. New automations use **Overdue
+repeat interval**, expressed in minutes. An older automation that relied on the
+original one-hour default continues at the equivalent 60-minute default.
 
 ### Create a food-removal automation
 
