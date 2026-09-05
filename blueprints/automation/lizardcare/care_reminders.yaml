@@ -38,7 +38,9 @@ blueprint:
             domain: notify
     reminder_time:
       name: Reminder time
-      description: Time for the single daily due-today check.
+      description: >
+        Time to send due-today reminders and the local wall-clock anchor for
+        recurring overdue reminders.
       default: "19:00:00"
       selector:
         time:
@@ -159,6 +161,7 @@ variables:
   feeding_repeat_unit: !input feeding_overdue_repeat_interval_unit
   cleaning_repeat_value: !input cleaning_overdue_repeat_interval
   cleaning_repeat_unit: !input cleaning_overdue_repeat_interval_unit
+  configured_reminder_time: !input reminder_time
   feeding_repeat_interval_minutes: >
     {{ feeding_repeat_value | int * 60
        if feeding_repeat_unit == 'hours'
@@ -167,12 +170,16 @@ variables:
     {{ cleaning_repeat_value | int * 60
        if cleaning_repeat_unit == 'hours'
        else cleaning_repeat_value | int }}
-  wall_clock_minutes: >
-    {{ now().toordinal() * 1440 + now().hour * 60 + now().minute }}
+  minutes_from_reminder_anchor: >
+    {% set anchor = today_at(configured_reminder_time) %}
+    {{ now().toordinal() * 1440 + now().hour * 60 + now().minute -
+       (anchor.hour * 60 + anchor.minute) }}
   is_feeding_repeat_boundary: >
-    {{ wall_clock_minutes | int % feeding_repeat_interval_minutes | int == 0 }}
+    {{ minutes_from_reminder_anchor | int %
+       feeding_repeat_interval_minutes | int == 0 }}
   is_cleaning_repeat_boundary: >
-    {{ wall_clock_minutes | int % cleaning_repeat_interval_minutes | int == 0 }}
+    {{ minutes_from_reminder_anchor | int %
+       cleaning_repeat_interval_minutes | int == 0 }}
   automation_ran_this_minute: >
     {% set last_run = as_timestamp(this.attributes.last_triggered, 0) %}
     {{ last_run > 0 and
@@ -226,7 +233,7 @@ actions:
              (trigger.id == 'feeding_overdue' or
               (trigger.id == 'startup' and
                not automation_ran_this_minute) or
-              (trigger.id == 'overdue_repeat' and
+              (trigger.id in ['due_today', 'overdue_repeat'] and
                is_feeding_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
@@ -244,7 +251,7 @@ actions:
              (trigger.id == 'spot_clean_overdue' or
               (trigger.id == 'startup' and
                not automation_ran_this_minute) or
-              (trigger.id == 'overdue_repeat' and
+              (trigger.id in ['due_today', 'overdue_repeat'] and
                is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
@@ -262,7 +269,7 @@ actions:
              (trigger.id == 'full_clean_overdue' or
               (trigger.id == 'startup' and
                not automation_ran_this_minute) or
-              (trigger.id == 'overdue_repeat' and
+              (trigger.id in ['due_today', 'overdue_repeat'] and
                is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:

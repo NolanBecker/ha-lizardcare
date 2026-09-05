@@ -139,9 +139,13 @@ def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
 
     assert "feeding_repeat_value | int * 60" in blueprint
     assert "cleaning_repeat_value | int * 60" in blueprint
-    assert "now().toordinal() * 1440" in blueprint
+    assert "today_at(configured_reminder_time)" in blueprint
+    assert "minutes_from_reminder_anchor" in blueprint
     assert blueprint.count("is_feeding_repeat_boundary and") == 1
     assert blueprint.count("is_cleaning_repeat_boundary and") == 2
+    assert blueprint.count(
+        "trigger.id in ['due_today', 'overdue_repeat']"
+    ) == 3
     assert blueprint.count("not automation_ran_this_minute") == 6
     assert blueprint.count("elapsed >= 60") == 3
     assert "\n  repeat_hours:" not in blueprint
@@ -158,30 +162,34 @@ def test_removed_legacy_inputs_are_absent() -> None:
     assert "overdue_repeat_interval" not in inputs
 
 
-def _is_boundary(value: datetime, interval_minutes: int) -> bool:
-    """Mirror the blueprint's local wall-clock boundary calculation."""
+def _is_boundary(
+    value: datetime,
+    interval_minutes: int,
+    anchor_hour: int = 16,
+    anchor_minute: int = 0,
+) -> bool:
+    """Mirror the blueprint's Reminder Time anchored calculation."""
+    anchor_minutes = anchor_hour * 60 + anchor_minute
     wall_clock_minutes = (
         value.toordinal() * 1440 + value.hour * 60 + value.minute
     )
-    return wall_clock_minutes % interval_minutes == 0
+    return (wall_clock_minutes - anchor_minutes) % interval_minutes == 0
 
 
 @pytest.mark.parametrize(
     ("interval", "boundary", "between"),
     [
-        (15, (11, 15), (11, 7)),
-        (30, (11, 30), (11, 17)),
-        (60, (12, 0), (11, 17)),
-        (90, (13, 30), (12, 15)),
-        (240, (16, 0), (15, 0)),
+        (60, (17, 0), (16, 23)),
+        (720, (4, 0), (8, 15)),
+        (1440, (16, 0), (0, 0)),
     ],
 )
-def test_repeat_intervals_align_to_local_wall_clock(
+def test_repeat_intervals_align_to_reminder_time(
     interval: int,
     boundary: tuple[int, int],
     between: tuple[int, int],
 ) -> None:
-    """Supported intervals align predictably from local midnight."""
+    """Supported intervals align predictably from a 4 PM Reminder Time."""
     timezone = ZoneInfo("America/Chicago")
     assert _is_boundary(
         datetime(2026, 9, 3, *boundary, tzinfo=timezone), interval
@@ -202,3 +210,26 @@ def test_due_today_and_recovery_triggers_are_unchanged() -> None:
     assert "trigger.id == 'spot_clean_overdue'" in blueprint
     assert "trigger.id == 'full_clean_overdue'" in blueprint
     assert blueprint.count("trigger.id == 'startup'") == 3
+
+
+def test_feeding_and_cleaning_share_anchor_with_different_intervals() -> None:
+    """Feeding can repeat hourly while cleaning repeats daily from 4 PM."""
+    timezone = ZoneInfo("America/Chicago")
+    five_pm = datetime(2026, 9, 3, 17, 0, tzinfo=timezone)
+    next_day_four_pm = datetime(2026, 9, 4, 16, 0, tzinfo=timezone)
+
+    assert _is_boundary(five_pm, 60)
+    assert not _is_boundary(five_pm, 1440)
+    assert _is_boundary(next_day_four_pm, 60)
+    assert _is_boundary(next_day_four_pm, 1440)
+
+
+def test_daily_anchor_stays_at_same_local_time_across_dst() -> None:
+    """Calendar-minute arithmetic keeps a daily boundary at 4 PM local."""
+    timezone = ZoneInfo("America/Chicago")
+    before_fall_back = datetime(2026, 10, 31, 16, 0, tzinfo=timezone)
+    after_fall_back = datetime(2026, 11, 1, 16, 0, tzinfo=timezone)
+
+    assert before_fall_back.utcoffset() != after_fall_back.utcoffset()
+    assert _is_boundary(before_fall_back, 1440)
+    assert _is_boundary(after_fall_back, 1440)
