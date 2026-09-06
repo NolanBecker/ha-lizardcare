@@ -4,7 +4,8 @@ blueprint:
     Send feeding, spot-clean, and full-clean reminders from Lizard Care status
     sensors. Due-today notices use the configured reminder time. Overdue notices
     begin immediately and repeat independently on local wall-clock boundaries
-    while each task remains overdue.
+    within the configured daily notification window while each task remains
+    overdue.
   domain: automation
   author: Lizard Care
   source_url: https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/care_reminders.yaml
@@ -42,6 +43,14 @@ blueprint:
         Time to send due-today reminders and the local wall-clock anchor for
         recurring overdue reminders.
       default: "19:00:00"
+      selector:
+        time:
+    overdue_reminder_end_time:
+      name: Overdue reminder end time
+      description: >
+        Inclusive local time when recurring overdue reminders stop for the
+        day. Times earlier than Reminder Time create a window across midnight.
+      default: "23:00:00"
       selector:
         time:
     feeding_enabled:
@@ -162,6 +171,7 @@ variables:
   cleaning_repeat_value: !input cleaning_overdue_repeat_interval
   cleaning_repeat_unit: !input cleaning_overdue_repeat_interval_unit
   configured_reminder_time: !input reminder_time
+  configured_overdue_end_time: !input overdue_reminder_end_time
   feeding_repeat_interval_minutes: >
     {{ feeding_repeat_value | int * 60
        if feeding_repeat_unit == 'hours'
@@ -180,6 +190,15 @@ variables:
   is_cleaning_repeat_boundary: >
     {{ minutes_from_reminder_anchor | int %
        cleaning_repeat_interval_minutes | int == 0 }}
+  is_within_overdue_window: >
+    {% set start = today_at(configured_reminder_time) %}
+    {% set end = today_at(configured_overdue_end_time) %}
+    {% set current_minutes = now().hour * 60 + now().minute %}
+    {% set start_minutes = start.hour * 60 + start.minute %}
+    {% set end_minutes = end.hour * 60 + end.minute %}
+    {{ start_minutes <= current_minutes <= end_minutes
+       if start_minutes <= end_minutes
+       else current_minutes >= start_minutes or current_minutes <= end_minutes }}
   automation_ran_this_minute: >
     {% set last_run = as_timestamp(this.attributes.last_triggered, 0) %}
     {{ last_run > 0 and
@@ -232,8 +251,10 @@ actions:
              is_state(feeding_entity, 'overdue') and
              (trigger.id == 'feeding_overdue' or
               (trigger.id == 'startup' and
+               is_within_overdue_window and
                not automation_ran_this_minute) or
               (trigger.id in ['due_today', 'overdue_repeat'] and
+               is_within_overdue_window and
                is_feeding_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
@@ -250,8 +271,10 @@ actions:
              is_state(spot_clean_entity, 'overdue') and
              (trigger.id == 'spot_clean_overdue' or
               (trigger.id == 'startup' and
+               is_within_overdue_window and
                not automation_ran_this_minute) or
               (trigger.id in ['due_today', 'overdue_repeat'] and
+               is_within_overdue_window and
                is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
@@ -268,8 +291,10 @@ actions:
              is_state(full_clean_entity, 'overdue') and
              (trigger.id == 'full_clean_overdue' or
               (trigger.id == 'startup' and
+               is_within_overdue_window and
                not automation_ran_this_minute) or
               (trigger.id in ['due_today', 'overdue_repeat'] and
+               is_within_overdue_window and
                is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:

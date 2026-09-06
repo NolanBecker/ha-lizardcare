@@ -105,19 +105,23 @@ Alternatively, copy both repository files into
    overdue repeat intervals. Each category has a numeric value and an
    independent **Minutes** or **Hours** unit. Feeding defaults to **1 hour**;
    Spot Clean and Full Clean share a cleaning interval that defaults to
-   **24 hours**.
+   **24 hours**. Set **Overdue reminder end time** to control when recurring
+   notices stop each day; the default is 11:00 PM.
 5. Save the automation.
 
-The selected time controls only `due_today` notices. An `overdue` transition
-sends immediately, and a minute-level check honors the configured repeat
-interval independently for every task. The selected Reminder Time is also the
-local wall-clock anchor for overdue repeats. For example, with a 4:00 PM
+At the selected Reminder Time, `due_today` notices are sent once. An `overdue`
+transition sends immediately, and a minute-level check honors the configured
+repeat interval independently for every task. Reminder Time is also the local
+wall-clock anchor for overdue repeats. For example, with a 4:00 PM
 Reminder Time, a one-hour Feeding interval repeats at 4:00 PM, 5:00 PM, and
 6:00 PM, while a 24-hour Cleaning interval repeats at 4:00 PM each local day.
+Recurring reminders run only from Reminder Time through the inclusive End
+Time, then pause until the next daily window. An End Time earlier than Reminder
+Time creates an overnight window, such as 8:00 PM through 1:00 AM. The initial
+transition into `overdue` still notifies immediately even outside the window.
 Recording or correcting a task stops its overdue messages without affecting
-other overdue tasks. Startup recovery checks tasks that are already overdue;
-automation reloads resume the same anchored cadence without waiting for the
-daily time or starting a new countdown.
+other overdue tasks. Startup recovery sends only inside the window; automation
+reloads resume the same anchored cadence without starting a new countdown.
 
 After re-importing this blueprint over an older version, edit and save each
 existing care-reminder automation once. Home Assistant displays the new Feeding

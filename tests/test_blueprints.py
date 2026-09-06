@@ -61,6 +61,7 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "full_clean_status",
         "notification_target",
         "reminder_time",
+        "overdue_reminder_end_time",
         "feeding_enabled",
         "spot_clean_enabled",
         "full_clean_enabled",
@@ -148,6 +149,7 @@ def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
     ) == 3
     assert blueprint.count("not automation_ran_this_minute") == 6
     assert blueprint.count("elapsed >= 60") == 3
+    assert blueprint.count("is_within_overdue_window and") == 6
     assert "\n  repeat_hours:" not in blueprint
 
 
@@ -174,6 +176,22 @@ def _is_boundary(
         value.toordinal() * 1440 + value.hour * 60 + value.minute
     )
     return (wall_clock_minutes - anchor_minutes) % interval_minutes == 0
+
+
+def _is_within_window(
+    value: datetime,
+    start_hour: int,
+    start_minute: int,
+    end_hour: int,
+    end_minute: int,
+) -> bool:
+    """Mirror the blueprint's inclusive local notification window."""
+    current_minutes = value.hour * 60 + value.minute
+    start_minutes = start_hour * 60 + start_minute
+    end_minutes = end_hour * 60 + end_minute
+    if start_minutes <= end_minutes:
+        return start_minutes <= current_minutes <= end_minutes
+    return current_minutes >= start_minutes or current_minutes <= end_minutes
 
 
 @pytest.mark.parametrize(
@@ -233,3 +251,66 @@ def test_daily_anchor_stays_at_same_local_time_across_dst() -> None:
     assert before_fall_back.utcoffset() != after_fall_back.utcoffset()
     assert _is_boundary(before_fall_back, 1440)
     assert _is_boundary(after_fall_back, 1440)
+
+
+def test_hourly_repeats_are_limited_to_daily_window() -> None:
+    """A 4 PM through 11 PM window admits only its eight hourly boundaries."""
+    timezone = ZoneInfo("America/Chicago")
+    allowed_hours = [
+        hour
+        for hour in range(24)
+        if _is_boundary(
+            datetime(2026, 9, 3, hour, 0, tzinfo=timezone), 60
+        )
+        and _is_within_window(
+            datetime(2026, 9, 3, hour, 0, tzinfo=timezone),
+            16,
+            0,
+            23,
+            0,
+        )
+    ]
+    assert allowed_hours == [16, 17, 18, 19, 20, 21, 22, 23]
+
+
+def test_overdue_window_resumes_at_reminder_time_next_day() -> None:
+    """Morning repeats are suppressed and the next 4 PM boundary is allowed."""
+    timezone = ZoneInfo("America/Chicago")
+    morning = datetime(2026, 9, 4, 10, 0, tzinfo=timezone)
+    reminder_time = datetime(2026, 9, 4, 16, 0, tzinfo=timezone)
+
+    assert not _is_within_window(morning, 16, 0, 23, 0)
+    assert _is_within_window(reminder_time, 16, 0, 23, 0)
+    assert _is_boundary(reminder_time, 60)
+    assert _is_boundary(reminder_time, 1440)
+
+
+def test_window_can_cross_midnight() -> None:
+    """An 8 PM through 1 AM window includes late night and early morning."""
+    timezone = ZoneInfo("America/Chicago")
+    assert _is_within_window(
+        datetime(2026, 9, 3, 20, 0, tzinfo=timezone), 20, 0, 1, 0
+    )
+    assert _is_within_window(
+        datetime(2026, 9, 4, 0, 30, tzinfo=timezone), 20, 0, 1, 0
+    )
+    assert _is_within_window(
+        datetime(2026, 9, 4, 1, 0, tzinfo=timezone), 20, 0, 1, 0
+    )
+    assert not _is_within_window(
+        datetime(2026, 9, 4, 1, 1, tzinfo=timezone), 20, 0, 1, 0
+    )
+
+
+def test_immediate_overdue_is_not_gated_by_window() -> None:
+    """Only startup and recurring paths reference the window guard."""
+    blueprint = (
+        BLUEPRINT_DIR / "care_reminders.yaml"
+    ).read_text()
+
+    for trigger_id in (
+        "feeding_overdue",
+        "spot_clean_overdue",
+        "full_clean_overdue",
+    ):
+        assert f"trigger.id == '{trigger_id}' or" in blueprint
