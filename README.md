@@ -131,6 +131,23 @@ Alternatively, copy all three repository files into
    notices stop each day; the default is 11:00 PM.
 5. Save the automation.
 
+Each blueprint supports an optional custom notification title and multiline
+message. Leave either field blank to use its contextual built-in default. Set
+**Dashboard URL** (default `/mobile-dashboard/pixel`) to the relative Home
+Assistant dashboard/view that should open when the notification body is tapped.
+Select the matching Lizard Care action buttons when creating the automation.
+These selectors default to blank so existing automations continue working after
+the blueprint update; no action button is shown until its entity is selected.
+
+Notifications include one contextual Companion app action on both Android and
+iOS: **Mark as Fed**, **Mark Food Removed**, or **Mark as Cleaned**. The
+automation handles `mobile_app_notification_action` events and calls the
+selected Feed, Remove Food, Spot Clean, or Full Clean button. This updates care
+history and scheduling exactly as pressing that button in Home Assistant would.
+Action IDs include the automation entity ID and task, isolating different pets
+and blueprint instances. When multiple recipients receive a notification,
+either recipient can complete the same underlying care action.
+
 At the selected Reminder Time, `due_today` notices are sent once. An `overdue`
 transition sends immediately, and a minute-level check honors the configured
 repeat interval independently for every task. Reminder Time is also the local

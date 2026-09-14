@@ -15,6 +15,14 @@ blueprint:
         entity:
           filter:
             domain: calendar
+    feed_button:
+      name: Feed button
+      description: Optional. Required to show the Mark as Fed action.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: button
     notification_target:
       name: Notification target
       description: Select one or more notify entities, devices, or areas.
@@ -36,7 +44,8 @@ blueprint:
         text:
     notification_title:
       name: Notification title
-      default: Lizard Care
+      description: Optional. Leave blank to use the built-in title.
+      default: ""
       selector:
         text:
     notification_message:
@@ -46,6 +55,12 @@ blueprint:
       selector:
         text:
           multiline: true
+    dashboard_url:
+      name: Dashboard URL
+      description: Relative Home Assistant URL opened when the notification is tapped.
+      default: /mobile-dashboard/pixel
+      selector:
+        text:
 
 triggers:
   - trigger: time
@@ -54,13 +69,18 @@ triggers:
   - trigger: homeassistant
     event: start
     id: startup
+  - trigger: event
+    event_type: mobile_app_notification_action
+    id: notification_action
 
 variables:
   vacation_calendar_entity: !input vacation_calendar
+  feed_button_entity: !input feed_button
   configured_reminder_time: !input reminder_time
   configured_pet_name: !input pet_name_override
   configured_message: !input notification_message
   title_text: !input notification_title
+  configured_dashboard_url: !input dashboard_url
   pet_name: "{{ configured_pet_name | trim or 'Your pet' }}"
   message_text: >
     {{ configured_message | trim
@@ -72,8 +92,21 @@ variables:
     {{ previous is not none and
        as_local(previous).date() == now().date() and
        as_local(previous) >= today_at(configured_reminder_time) }}
+  feeding_action_id: >
+    LIZARD_CARE_{{ this.entity_id | replace('.', '_') | upper }}_FEED
 
 actions:
+  - choose:
+      - conditions: >
+          {{ trigger.id == 'notification_action' and
+             feed_button_entity | trim != '' and
+             trigger.event.data.action == feeding_action_id }}
+        sequence:
+          - action: button.press
+            target:
+              entity_id: "{{ feed_button_entity }}"
+  - condition: template
+    value_template: "{{ trigger.id != 'notification_action' }}"
   - condition: template
     value_template: >
       {{ trigger.id == 'reminder' or
@@ -113,8 +146,13 @@ actions:
   - action: notify.send_message
     target: !input notification_target
     data:
-      title: "{{ title_text }}"
+      title: "{{ title_text | trim or 'Lizard Care — Vacation Feeding' }}"
       message: "{{ message_text }}"
+      data:
+        url: "{{ configured_dashboard_url }}"
+        actions: >
+          {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
+             if feed_button_entity | trim != '' else [] }}
 
 mode: single
 max_exceeded: silent

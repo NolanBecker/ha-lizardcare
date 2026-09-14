@@ -57,6 +57,7 @@ def test_food_removal_blueprint_uses_event_driven_architecture() -> None:
         "reminder_boundary",
         "overdue_repeat",
         "startup",
+        "notification_action",
     }
     assert not any("repeat" in action for action in document["actions"])
 
@@ -125,6 +126,7 @@ def test_care_reminder_blueprint_trigger_architecture() -> None:
         "full_clean_overdue",
         "overdue_repeat",
         "startup",
+        "notification_action",
     }
     assert not any("repeat" in action for action in document["actions"])
 
@@ -152,6 +154,11 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "cleaning_overdue_repeat_interval_unit",
         "pet_name_override",
         "notification_title_prefix",
+        "notification_message",
+        "dashboard_url",
+        "feed_button",
+        "spot_clean_button",
+        "full_clean_button",
         "vacation_calendar",
     } <= inputs.keys()
 
@@ -178,6 +185,7 @@ def test_vacation_reminder_queries_tomorrow_once() -> None:
     assert {trigger["id"] for trigger in document["triggers"]} == {
         "reminder",
         "startup",
+        "notification_action",
     }
     assert "action: calendar.get_events" in blueprint
     assert "timedelta(days=1)" in blueprint
@@ -188,6 +196,115 @@ def test_vacation_reminder_queries_tomorrow_once() -> None:
     assert "reminder_time_has_passed" in blueprint
     assert "reminder_already_handled_today" in blueprint
     assert "this.attributes.last_triggered" in blueprint
+
+
+def _resolved_text(custom: str, default: str) -> str:
+    """Mirror blank-aware blueprint text selection."""
+    return custom.strip() or default
+
+
+@pytest.mark.parametrize(
+    ("title", "message", "expected_title", "expected_message"),
+    [
+        ("", "", "Lizard Care — Feeding", "Pixel's feeding is due today."),
+        ("Care alert", "", "Care alert", "Pixel's feeding is due today."),
+        ("", "Feed before sunset", "Lizard Care — Feeding", "Feed before sunset"),
+        ("Care alert", "Feed now", "Care alert", "Feed now"),
+    ],
+)
+def test_custom_notification_text_overrides_independently(
+    title: str,
+    message: str,
+    expected_title: str,
+    expected_message: str,
+) -> None:
+    """Blank and custom title/message values resolve independently."""
+    assert _resolved_text(title, "Lizard Care — Feeding") == expected_title
+    assert _resolved_text(
+        message, "Pixel's feeding is due today."
+    ) == expected_message
+
+
+def test_notification_ux_inputs_and_payloads_are_complete() -> None:
+    """Every blueprint exposes custom text, dashboard URL, and one action."""
+    expectations = {
+        "care_reminders.yaml": {
+            "Mark as Fed",
+            "Mark as Cleaned",
+        },
+        "food_removal_reminder.yaml": {"Mark Food Removed"},
+        "vacation_care_reminder.yaml": {"Mark as Fed"},
+    }
+    for filename, labels in expectations.items():
+        path = BLUEPRINT_DIR / filename
+        document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+        inputs = document["blueprint"]["input"]
+        blueprint = path.read_text()
+
+        assert inputs["dashboard_url"]["default"] == "/mobile-dashboard/pixel"
+        assert "notification_message" in inputs
+        assert "multiline" in inputs["notification_message"]["selector"]["text"]
+        assert 'url: "{{ configured_dashboard_url }}"' in blueprint
+        assert "event_type: mobile_app_notification_action" in blueprint
+        for label in labels:
+            assert f"'title': '{label}'" in blueprint
+
+    care_inputs = yaml.load(
+        (BLUEPRINT_DIR / "care_reminders.yaml").read_text(),
+        Loader=BlueprintLoader,
+    )["blueprint"]["input"]
+    assert care_inputs["feed_button"]["default"] == ""
+    assert care_inputs["spot_clean_button"]["default"] == ""
+    assert care_inputs["full_clean_button"]["default"] == ""
+
+
+def test_contextual_actions_route_to_selected_buttons() -> None:
+    """Each action event calls its corresponding configured button."""
+    care = (BLUEPRINT_DIR / "care_reminders.yaml").read_text()
+    food = (BLUEPRINT_DIR / "food_removal_reminder.yaml").read_text()
+    vacation = (BLUEPRINT_DIR / "vacation_care_reminder.yaml").read_text()
+
+    for entity_variable in (
+        "feed_button_entity",
+        "spot_clean_button_entity",
+        "full_clean_button_entity",
+    ):
+        assert f'entity_id: "{{{{ {entity_variable} }}}}"' in care
+    assert 'entity_id: "{{ remove_food_button_entity }}"' in food
+    assert 'entity_id: "{{ feed_button_entity }}"' in vacation
+    assert care.count("action: button.press") == 3
+    assert food.count("action: button.press") == 1
+    assert vacation.count("action: button.press") == 1
+
+
+def test_action_ids_are_unique_by_automation_and_task() -> None:
+    """Action identifiers combine automation identity with a task suffix."""
+    care = (BLUEPRINT_DIR / "care_reminders.yaml").read_text()
+    food = (BLUEPRINT_DIR / "food_removal_reminder.yaml").read_text()
+    vacation = (BLUEPRINT_DIR / "vacation_care_reminder.yaml").read_text()
+
+    for blueprint in (care, food, vacation):
+        assert "this.entity_id | replace('.', '_') | upper" in blueprint
+    assert 'feeding_action_id: "{{ action_id_prefix }}_FEED"' in care
+    assert 'spot_clean_action_id: "{{ action_id_prefix }}_SPOT_CLEAN"' in care
+    assert 'full_clean_action_id: "{{ action_id_prefix }}_FULL_CLEAN"' in care
+    assert "_REMOVE_FOOD" in food
+
+
+def test_unrelated_notification_actions_stop_before_reminder_logic() -> None:
+    """An unmatched mobile action cannot press a button or send a reminder."""
+    for filename in (
+        "care_reminders.yaml",
+        "food_removal_reminder.yaml",
+        "vacation_care_reminder.yaml",
+    ):
+        blueprint = (BLUEPRINT_DIR / filename).read_text()
+        handler = blueprint.index("trigger.event.data.action")
+        stop = blueprint.index(
+            'value_template: "{{ trigger.id != \'notification_action\' }}"'
+        )
+        calendar_query = blueprint.index("action: calendar.get_events")
+        assert handler < stop < calendar_query
 
 
 def _vacation_is_active(
