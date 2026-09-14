@@ -87,6 +87,19 @@ The repository includes:
   becomes `overdue`, and repeats each overdue task independently.
 - **Lizard Care — Food Removal Reminder** — sends when Food Removal Status
   becomes `due` and repeats while it remains `due` or `overdue`.
+- **Lizard Care — Vacation Care Reminder** — sends one advisory feeding
+  reminder on the day before an event begins on the selected vacation calendar.
+
+Each pet has an optional **Vacation calendar** setting. Select the same calendar
+again in each applicable Care Reminders, Food Removal Reminder, and Vacation
+Care Reminder automation. Home Assistant blueprints cannot read a custom
+integration's config-entry options automatically. While an event is actively in progress,
+the Care Reminders and Food Removal Reminder blueprints suppress notifications
+without changing care states, due dates, or timestamps. Timed events use their
+actual start and exclusive end instants; all-day and multi-day events use Home
+Assistant's calendar start/end boundaries. Before the event begins and after it
+ends, the existing anchored reminder rules continue normally. A missing or
+temporarily unavailable calendar fails open, preserving normal reminders.
 
 ### Install the blueprints
 
@@ -99,8 +112,9 @@ they do not install repository-root blueprint files into Home Assistant's
 3. Import each GitHub file URL:
    - `https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/care_reminders.yaml`
    - `https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/food_removal_reminder.yaml`
+   - `https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/vacation_care_reminder.yaml`
 
-Alternatively, copy both repository files into
+Alternatively, copy all three repository files into
 `/config/blueprints/automation/lizardcare/` and reload automations.
 
 ### Create a care-reminder automation
@@ -109,7 +123,7 @@ Alternatively, copy both repository files into
 2. Find **Lizard Care — Care Reminders** and select **Create automation**.
 3. Choose one pet's Feeding Status, Spot Clean Status, and Full Clean Status
    sensors.
-4. Choose the notify target, reminder time, enabled care categories, and
+4. Choose the notify target, optional Vacation calendar, reminder time, enabled care categories, and
    overdue repeat intervals. Each category has a numeric value and an
    independent **Minutes** or **Hours** unit. Feeding defaults to **1 hour**;
    Spot Clean and Full Clean share a cleaning interval that defaults to
@@ -166,6 +180,26 @@ After updating the Food Removal Reminder blueprint, edit and save the existing
 automation once to configure the new Reminder Time, End Time, and repeat
 value/unit inputs. The removed hours-only `repeat_interval` input is ignored;
 the automation does not need to be recreated.
+
+### Create a vacation-care automation
+
+1. Find **Lizard Care — Vacation Care Reminder** and select **Create
+   automation**.
+2. Choose the pet's Vacation calendar and notify target.
+3. Set the day-before Reminder Time (default 4:00 PM), enter the pet name, and
+   optionally customize the title or message.
+4. Save the automation.
+
+At the configured local time, the blueprint asks the generic Home Assistant
+calendar API for events intersecting tomorrow, then sends once if one or more
+events actually start tomorrow. Feeding does not need to be due. Multiple
+events on that start date still produce one message. If Home Assistant starts
+after the configured Reminder Time, the automation recovers a missed reminder.
+It uses the automation entity's restored `last_triggered` timestamp to avoid
+repeating a reminder already handled at or after today's Reminder Time. A
+startup before the configured time does not send early or block the normal time
+trigger. Use the normal Feed button afterward; food-removal state and reminders
+continue through their existing workflow.
 
 ## Development and testing
 

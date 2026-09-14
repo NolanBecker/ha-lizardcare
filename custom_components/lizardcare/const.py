@@ -12,6 +12,7 @@ CONF_NOTES = "notes"
 CONF_FEEDING_INSTRUCTIONS = "feeding_instructions"
 CONF_SPOT_CLEAN_INSTRUCTIONS = "spot_clean_instructions"
 CONF_FULL_CLEAN_INSTRUCTIONS = "full_clean_instructions"
+CONF_VACATION_CALENDAR = "vacation_calendar"
 
 DEFAULT_FEEDING_INSTRUCTIONS = ""
 DEFAULT_SPOT_CLEAN_INSTRUCTIONS = ""

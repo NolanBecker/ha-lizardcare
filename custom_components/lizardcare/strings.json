@@ -50,6 +50,7 @@
           "feeding_instructions": "Feeding instructions",
           "spot_clean_instructions": "Spot clean instructions",
           "full_clean_instructions": "Full clean instructions",
+          "vacation_calendar": "Vacation calendar",
           "food_removal_anchor_time": "Food removal anchor time",
           "food_removal_delay": "Food removal delay",
           "food_removal_delay_unit": "Food removal delay unit"
@@ -70,6 +71,7 @@
           "feeding_instructions": "Optional reference instructions shown for this care task.",
           "spot_clean_instructions": "Optional reference instructions shown for this care task.",
           "full_clean_instructions": "Optional reference instructions shown for this care task.",
+          "vacation_calendar": "Select the calendar used to track vacations. Reminder automations must also be configured with the same calendar.",
           "food_removal_anchor_time": "Daily care time used to anchor the food-removal due calculation",
           "food_removal_delay": "Time after the daily anchor when food should be removed",
           "food_removal_delay_unit": "Choose Minutes or Hours"

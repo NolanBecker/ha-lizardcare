@@ -1,6 +1,6 @@
 """Structural checks for the bundled automation blueprints."""
 
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -10,6 +10,12 @@ import yaml
 BLUEPRINT_DIR = (
     Path(__file__).parents[1] / "blueprints" / "automation" / "lizardcare"
 )
+LOCAL_TZ = ZoneInfo("America/Chicago")
+
+
+def _local_datetime(*args: int) -> datetime:
+    """Return a timezone-aware local test datetime."""
+    return datetime(*args, tzinfo=LOCAL_TZ)
 
 
 class BlueprintLoader(yaml.SafeLoader):
@@ -24,7 +30,11 @@ BlueprintLoader.add_constructor(
 
 def test_blueprints_are_valid_yaml_with_automation_schema() -> None:
     """Both distributable files contain their required top-level sections."""
-    expected = {"care_reminders.yaml", "food_removal_reminder.yaml"}
+    expected = {
+        "care_reminders.yaml",
+        "food_removal_reminder.yaml",
+        "vacation_care_reminder.yaml",
+    }
     paths = set(BLUEPRINT_DIR.glob("*.yaml"))
     assert {path.name for path in paths} == expected
     for path in paths:
@@ -67,6 +77,7 @@ def test_food_removal_blueprint_inputs_and_defaults() -> None:
         for option in unit_input["selector"]["select"]["options"]
     } == {"minutes", "hours"}
     assert "repeat_interval" not in inputs
+    assert inputs["vacation_calendar"]["default"] == ""
 
 
 def test_food_removal_blueprint_uses_status_due_at_for_boundaries() -> None:
@@ -141,7 +152,173 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "cleaning_overdue_repeat_interval_unit",
         "pet_name_override",
         "notification_title_prefix",
+        "vacation_calendar",
     } <= inputs.keys()
+
+
+def test_existing_reminders_query_and_suppress_active_vacations() -> None:
+    """Both reminder blueprints use generic event queries and fail open."""
+    for filename in ("care_reminders.yaml", "food_removal_reminder.yaml"):
+        blueprint = (BLUEPRINT_DIR / filename).read_text()
+        assert "action: calendar.get_events" in blueprint
+        assert "continue_on_error: true" in blueprint
+        assert "current >= start and current < end" in blueprint
+        assert "['unknown', 'unavailable']" in blueprint
+        assert "vacation_is_active" in blueprint
+
+
+def test_vacation_reminder_queries_tomorrow_once() -> None:
+    """The advisory blueprint checks start dates from one daily trigger."""
+    path = BLUEPRINT_DIR / "vacation_care_reminder.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    inputs = document["blueprint"]["input"]
+    blueprint = path.read_text()
+
+    assert inputs["reminder_time"]["default"] == "16:00:00"
+    assert {trigger["id"] for trigger in document["triggers"]} == {
+        "reminder",
+        "startup",
+    }
+    assert "action: calendar.get_events" in blueprint
+    assert "timedelta(days=1)" in blueprint
+    assert "timedelta(days=2)" in blueprint
+    assert "start_date == tomorrow" in blueprint
+    assert blueprint.count("action: notify.send_message") == 1
+    assert "feeding_status" not in inputs
+    assert "reminder_time_has_passed" in blueprint
+    assert "reminder_already_handled_today" in blueprint
+    assert "this.attributes.last_triggered" in blueprint
+
+
+def _vacation_is_active(
+    now: datetime,
+    start: datetime,
+    end: datetime,
+) -> bool:
+    """Mirror the blueprints' inclusive-start/exclusive-end rule."""
+    return now >= start and now < end
+
+
+@pytest.mark.parametrize(
+    ("current", "expected"),
+    [
+        (_local_datetime(2026, 9, 18, 17, 59), False),
+        (_local_datetime(2026, 9, 18, 18, 0), True),
+        (_local_datetime(2026, 9, 19, 0, 30), True),
+        (_local_datetime(2026, 9, 21, 13, 59), True),
+        (_local_datetime(2026, 9, 21, 14, 0), False),
+    ],
+)
+def test_timed_vacation_uses_actual_event_boundaries(
+    current: datetime,
+    expected: bool,
+) -> None:
+    """Timed, multi-day, and midnight-spanning events use exact instants."""
+    assert _vacation_is_active(
+        current,
+        _local_datetime(2026, 9, 18, 18, 0),
+        _local_datetime(2026, 9, 21, 14, 0),
+    ) is expected
+
+
+@pytest.mark.parametrize(
+    ("current", "expected"),
+    [
+        (_local_datetime(2026, 9, 17, 23, 59), False),
+        (_local_datetime(2026, 9, 18, 0, 0), True),
+        (_local_datetime(2026, 9, 20, 23, 59), True),
+        (_local_datetime(2026, 9, 21, 0, 0), False),
+    ],
+)
+def test_all_day_vacation_uses_calendar_window(
+    current: datetime,
+    expected: bool,
+) -> None:
+    """All-day events cover start midnight through exclusive end midnight."""
+    assert _vacation_is_active(
+        current,
+        _local_datetime(2026, 9, 18, 0, 0),
+        _local_datetime(2026, 9, 21, 0, 0),
+    ) is expected
+
+
+def test_pre_vacation_detection_compares_local_start_date() -> None:
+    """Reminder selection is based on tomorrow's date, not 24-hour distance."""
+    reminder_at = _local_datetime(2026, 9, 17, 16, 0)
+    tomorrow = (reminder_at + timedelta(days=1)).date()
+
+    assert _local_datetime(2026, 9, 18, 8, 0).date() == tomorrow
+    assert _local_datetime(2026, 9, 18, 18, 0).date() == tomorrow
+    assert _local_datetime(2026, 9, 19, 8, 0).date() != tomorrow
+
+
+def _should_check_pre_vacation(
+    trigger_id: str,
+    now: datetime,
+    reminder_time: time,
+    previous_trigger: datetime | None,
+) -> bool:
+    """Mirror the advisory blueprint's startup recovery gate."""
+    scheduled = datetime.combine(now.date(), reminder_time, tzinfo=now.tzinfo)
+    handled = (
+        previous_trigger is not None
+        and previous_trigger.date() == now.date()
+        and previous_trigger >= scheduled
+    )
+    return trigger_id == "reminder" or (
+        trigger_id == "startup" and now >= scheduled and not handled
+    )
+
+
+def test_normal_pre_vacation_reminder_runs_at_scheduled_time() -> None:
+    """The normal daily trigger remains eligible exactly once."""
+    assert _should_check_pre_vacation(
+        "reminder",
+        _local_datetime(2026, 9, 17, 16, 0),
+        time(16, 0),
+        _local_datetime(2026, 9, 16, 16, 0),
+    )
+
+
+def test_startup_before_reminder_does_not_send_early() -> None:
+    """An early startup leaves delivery to the later time trigger."""
+    assert not _should_check_pre_vacation(
+        "startup",
+        _local_datetime(2026, 9, 17, 15, 0),
+        time(16, 0),
+        None,
+    )
+
+
+def test_startup_after_missed_reminder_recovers() -> None:
+    """A late startup runs the query when no later trigger was restored."""
+    assert _should_check_pre_vacation(
+        "startup",
+        _local_datetime(2026, 9, 17, 17, 15),
+        time(16, 0),
+        _local_datetime(2026, 9, 17, 15, 0),
+    )
+
+
+def test_startup_after_sent_reminder_does_not_duplicate() -> None:
+    """A restored post-reminder last-triggered value suppresses recovery."""
+    assert not _should_check_pre_vacation(
+        "startup",
+        _local_datetime(2026, 9, 17, 17, 15),
+        time(16, 0),
+        _local_datetime(2026, 9, 17, 16, 0),
+    )
+
+
+def test_vacation_start_and_query_failure_guards_are_present() -> None:
+    """No matching event or a failed query cannot emit a notification."""
+    blueprint = (
+        BLUEPRINT_DIR / "vacation_care_reminder.yaml"
+    ).read_text()
+
+    assert "continue_on_error: true" in blueprint
+    assert "vacation_events_response | default({})" in blueprint
+    assert 'value_template: "{{ vacation_starts_tomorrow }}"' in blueprint
 
 
 def test_disabled_spot_clean_never_notifies() -> None:

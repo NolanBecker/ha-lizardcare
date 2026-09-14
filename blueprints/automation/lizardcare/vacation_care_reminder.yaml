@@ -1,0 +1,120 @@
+blueprint:
+  name: Lizard Care — Vacation Care Reminder
+  description: >
+    Send one advisory feeding reminder on the calendar day before a vacation
+    starts. This does not change Lizard Care state or require feeding to be due.
+  domain: automation
+  author: Lizard Care
+  source_url: https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/vacation_care_reminder.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    vacation_calendar:
+      name: Vacation calendar
+      selector:
+        entity:
+          filter:
+            domain: calendar
+    notification_target:
+      name: Notification target
+      description: Select one or more notify entities, devices, or areas.
+      selector:
+        target:
+          entity:
+            domain: notify
+    reminder_time:
+      name: Reminder time
+      description: Time to check for vacations beginning tomorrow.
+      default: "16:00:00"
+      selector:
+        time:
+    pet_name_override:
+      name: Pet name
+      description: Optional pet name used by the default message.
+      default: "Your pet"
+      selector:
+        text:
+    notification_title:
+      name: Notification title
+      default: Lizard Care
+      selector:
+        text:
+    notification_message:
+      name: Notification message
+      description: Optional. Leave blank to use the standard message.
+      default: ""
+      selector:
+        text:
+          multiline: true
+
+triggers:
+  - trigger: time
+    at: !input reminder_time
+    id: reminder
+  - trigger: homeassistant
+    event: start
+    id: startup
+
+variables:
+  vacation_calendar_entity: !input vacation_calendar
+  configured_reminder_time: !input reminder_time
+  configured_pet_name: !input pet_name_override
+  configured_message: !input notification_message
+  title_text: !input notification_title
+  pet_name: "{{ configured_pet_name | trim or 'Your pet' }}"
+  message_text: >
+    {{ configured_message | trim
+       or 'Feed ' ~ pet_name ~ ' before vacation tomorrow.' }}
+  reminder_time_has_passed: >
+    {{ now() >= today_at(configured_reminder_time) }}
+  reminder_already_handled_today: >
+    {% set previous = this.attributes.last_triggered %}
+    {{ previous is not none and
+       as_local(previous).date() == now().date() and
+       as_local(previous) >= today_at(configured_reminder_time) }}
+
+actions:
+  - condition: template
+    value_template: >
+      {{ trigger.id == 'reminder' or
+         (trigger.id == 'startup' and reminder_time_has_passed and
+          not reminder_already_handled_today) }}
+  - action: calendar.get_events
+    continue_on_error: true
+    target:
+      entity_id: "{{ vacation_calendar_entity }}"
+    data:
+      start_date_time: >
+        {{ (today_at('00:00') + timedelta(days=1)).isoformat() }}
+      end_date_time: >
+        {{ (today_at('00:00') + timedelta(days=2)).isoformat() }}
+    response_variable: vacation_events_response
+  - variables:
+      vacation_starts_tomorrow: >
+        {% set calendar_result =
+           (vacation_events_response | default({})).get(
+             vacation_calendar_entity, {}) %}
+        {% set tomorrow = (now() + timedelta(days=1)).date() %}
+        {% set ns = namespace(found=false) %}
+        {% for event in calendar_result.get('events', []) %}
+          {% set start_value = event.start | string %}
+          {% set start = as_datetime(start_value, none) %}
+          {% set start_date =
+             as_local(start).date() if start is not none and 'T' in start_value
+             else as_datetime(start_value, none).date()
+             if start is not none else none %}
+          {% if start_date == tomorrow %}
+            {% set ns.found = true %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.found }}
+  - condition: template
+    value_template: "{{ vacation_starts_tomorrow }}"
+  - action: notify.send_message
+    target: !input notification_target
+    data:
+      title: "{{ title_text }}"
+      message: "{{ message_text }}"
+
+mode: single
+max_exceeded: silent

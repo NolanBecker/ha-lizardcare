@@ -23,6 +23,16 @@ blueprint:
         target:
           entity:
             domain: notify
+    vacation_calendar:
+      name: Vacation calendar
+      description: >
+        Optional. Active events on this calendar suppress notifications at
+        their actual start/end times. Leave blank to disable Vacation Mode.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: calendar
     reminder_time:
       name: Reminder time / schedule anchor
       description: >
@@ -151,6 +161,7 @@ variables:
   title_text: !input notification_title
   configured_message: !input notification_message
   configured_pet_name: !input pet_name_override
+  vacation_calendar_entity: !input vacation_calendar
   pet_name: >
     {{ configured_pet_name | trim
        or device_attr(device_id(status_entity), 'name')
@@ -164,6 +175,43 @@ conditions:
     value_template: "{{ states(status_entity) in ['due', 'overdue'] }}"
 
 actions:
+  - variables:
+      vacation_events_response: {}
+      vacation_is_active: false
+  - choose:
+      - conditions: >
+          {{ vacation_calendar_entity | trim != '' and
+             states(vacation_calendar_entity) not in
+             ['unknown', 'unavailable'] }}
+        sequence:
+          - action: calendar.get_events
+            continue_on_error: true
+            target:
+              entity_id: "{{ vacation_calendar_entity }}"
+            data:
+              start_date_time: "{{ now().isoformat() }}"
+              end_date_time: >
+                {{ (now() + timedelta(minutes=1)).isoformat() }}
+            response_variable: vacation_events_response
+          - variables:
+              vacation_is_active: >
+                {% set calendar_result =
+                   (vacation_events_response | default({})).get(
+                     vacation_calendar_entity, {}) %}
+                {% set events = calendar_result.get('events', []) %}
+                {% set current = as_timestamp(now()) %}
+                {% set ns = namespace(active=false) %}
+                {% for event in events %}
+                  {% set start = as_timestamp(event.start, none) %}
+                  {% set end = as_timestamp(event.end, none) %}
+                  {% if start is not none and end is not none and
+                        current >= start and current < end %}
+                    {% set ns.active = true %}
+                  {% endif %}
+                {% endfor %}
+                {{ ns.active }}
+  - condition: template
+    value_template: "{{ not vacation_is_active }}"
   - condition: template
     value_template: >
       {% set elapsed = as_timestamp(now()) -

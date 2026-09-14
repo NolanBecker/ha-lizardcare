@@ -38,6 +38,7 @@ from .const import (
     CONF_SPOT_CLEAN_ENABLED,
     CONF_SPOT_CLEAN_INSTRUCTIONS,
     CONF_SPOT_CLEAN_INTERVAL_DAYS,
+    CONF_VACATION_CALENDAR,
     DEFAULT_SPECIES,
     DOMAIN,
     TIME_UNIT_HOURS,
@@ -47,6 +48,7 @@ from .food_removal import get_food_removal_settings
 from .instructions import clean_instruction, get_care_instructions
 from .profile import get_pet_profile, normalize_pet_name, pet_name_is_duplicate
 from .schedule import get_care_schedule
+from .vacation import get_vacation_calendar
 
 
 def _profile_schema(*, species_default: str | None = None) -> vol.Schema:
@@ -137,6 +139,9 @@ def _options_schema() -> vol.Schema:
             ),
             vol.Optional(CONF_FULL_CLEAN_INSTRUCTIONS): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
+            ),
+            vol.Optional(CONF_VACATION_CALENDAR): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="calendar")
             ),
             vol.Required(CONF_FOOD_REMOVAL_ANCHOR_TIME): selector.TimeSelector(),
             vol.Required(CONF_FOOD_REMOVAL_DELAY): _positive_integer_selector(),
@@ -280,6 +285,9 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_FULL_CLEAN_INSTRUCTIONS: clean_instruction(
                         user_input.get(CONF_FULL_CLEAN_INSTRUCTIONS)
                     ),
+                    CONF_VACATION_CALENDAR: user_input.get(
+                        CONF_VACATION_CALENDAR
+                    ),
                     CONF_FOOD_REMOVAL_ANCHOR_TIME: user_input[
                         CONF_FOOD_REMOVAL_ANCHOR_TIME
                     ],
@@ -319,6 +327,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             CONF_FEEDING_INSTRUCTIONS: instructions.feeding,
             CONF_SPOT_CLEAN_INSTRUCTIONS: instructions.spot_clean,
             CONF_FULL_CLEAN_INSTRUCTIONS: instructions.full_clean,
+            CONF_VACATION_CALENDAR: get_vacation_calendar(self.config_entry),
             CONF_FOOD_REMOVAL_ANCHOR_TIME: (
                 food_removal.anchor_time.isoformat()
             ),

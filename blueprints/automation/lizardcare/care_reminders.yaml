@@ -37,6 +37,16 @@ blueprint:
         target:
           entity:
             domain: notify
+    vacation_calendar:
+      name: Vacation calendar
+      description: >
+        Optional. Active events on this calendar suppress notifications at
+        their actual start/end times. Leave blank to disable Vacation Mode.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: calendar
     reminder_time:
       name: Reminder time
       description: >
@@ -205,16 +215,53 @@ variables:
        (last_run / 60) | int == (as_timestamp(now()) / 60) | int }}
   title_prefix: !input notification_title_prefix
   configured_pet_name: !input pet_name_override
+  vacation_calendar_entity: !input vacation_calendar
   pet_name: >
     {{ configured_pet_name | trim
        or device_attr(device_id(feeding_entity), 'name')
        or 'Your pet' }}
 
 actions:
+  - variables:
+      vacation_events_response: {}
+      vacation_is_active: false
+  - choose:
+      - conditions: >
+          {{ vacation_calendar_entity | trim != '' and
+             states(vacation_calendar_entity) not in
+             ['unknown', 'unavailable'] }}
+        sequence:
+          - action: calendar.get_events
+            continue_on_error: true
+            target:
+              entity_id: "{{ vacation_calendar_entity }}"
+            data:
+              start_date_time: "{{ now().isoformat() }}"
+              end_date_time: >
+                {{ (now() + timedelta(minutes=1)).isoformat() }}
+            response_variable: vacation_events_response
+          - variables:
+              vacation_is_active: >
+                {% set calendar_result =
+                   (vacation_events_response | default({})).get(
+                     vacation_calendar_entity, {}) %}
+                {% set events = calendar_result.get('events', []) %}
+                {% set current = as_timestamp(now()) %}
+                {% set ns = namespace(active=false) %}
+                {% for event in events %}
+                  {% set start = as_timestamp(event.start, none) %}
+                  {% set end = as_timestamp(event.end, none) %}
+                  {% if start is not none and end is not none and
+                        current >= start and current < end %}
+                    {% set ns.active = true %}
+                  {% endif %}
+                {% endfor %}
+                {{ ns.active }}
   - choose:
       - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
-             feeding_is_enabled and is_state(feeding_entity, 'due_today') }}
+             not vacation_is_active and feeding_is_enabled and
+             is_state(feeding_entity, 'due_today') }}
         sequence:
           - action: notify.send_message
             target: !input notification_target
@@ -224,7 +271,7 @@ actions:
   - choose:
       - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
-             spot_clean_is_enabled and
+             not vacation_is_active and spot_clean_is_enabled and
              not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'due_today') }}
         sequence:
@@ -236,7 +283,7 @@ actions:
   - choose:
       - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
-             full_clean_is_enabled and
+             not vacation_is_active and full_clean_is_enabled and
              is_state(full_clean_entity, 'due_today') }}
         sequence:
           - action: notify.send_message
@@ -248,7 +295,7 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[feeding_entity].last_changed) %}
-          {{ send_overdue and feeding_is_enabled and
+          {{ not vacation_is_active and send_overdue and feeding_is_enabled and
              is_state(feeding_entity, 'overdue') and
              (trigger.id == 'feeding_overdue' or
               (trigger.id == 'startup' and
@@ -268,7 +315,7 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[spot_clean_entity].last_changed) %}
-          {{ send_overdue and spot_clean_is_enabled and
+          {{ not vacation_is_active and send_overdue and spot_clean_is_enabled and
              not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'overdue') and
              (trigger.id == 'spot_clean_overdue' or
@@ -289,7 +336,7 @@ actions:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[full_clean_entity].last_changed) %}
-          {{ send_overdue and full_clean_is_enabled and
+          {{ not vacation_is_active and send_overdue and full_clean_is_enabled and
              is_state(full_clean_entity, 'overdue') and
              (trigger.id == 'full_clean_overdue' or
               (trigger.id == 'startup' and
