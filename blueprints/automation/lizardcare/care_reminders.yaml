@@ -55,12 +55,25 @@ blueprint:
           filter:
             domain: button
     notification_target:
-      name: Notification target
-      description: Select one or more notify entities, devices, or areas.
+      name: Legacy notification target (unused)
+      description: >
+        Retained so existing automations load. Configure Companion notification
+        services below instead.
+      default: {}
       selector:
         target:
           entity:
             domain: notify
+    notification_services:
+      name: Companion notification services
+      description: >
+        Add one fully qualified service per recipient, such as
+        notify.mobile_app_nolans_phone. Each service receives the same
+        actionable notification.
+      default: []
+      selector:
+        text:
+          multiple: true
     vacation_calendar:
       name: Vacation calendar
       description: >
@@ -260,6 +273,7 @@ variables:
   title_prefix: !input notification_title_prefix
   configured_message: !input notification_message
   configured_dashboard_url: !input dashboard_url
+  notification_service_list: !input notification_services
   configured_pet_name: !input pet_name_override
   vacation_calendar_entity: !input vacation_calendar
   pet_name: >
@@ -341,18 +355,20 @@ actions:
              not vacation_is_active and feeding_is_enabled and
              is_state(feeding_entity, 'due_today') }}
         sequence:
-          - action: notify.send_message
-            target: !input notification_target
-            data:
-              title: "{{ title_prefix | trim or 'Lizard Care — Feeding' }}"
-              message: >
-                {{ configured_message | trim
-                   or pet_name ~ "'s feeding is due today." }}
-              data:
-                url: "{{ configured_dashboard_url }}"
-                actions: >
-                  {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
-                     if feed_button_entity | trim != '' else [] }}
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: "{{ title_prefix | trim or 'Lizard Care — Feeding' }}"
+                    message: >
+                      {{ configured_message | trim
+                         or pet_name ~ "'s feeding is due today." }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
+                           if feed_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
@@ -360,38 +376,42 @@ actions:
              not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'due_today') }}
         sequence:
-          - action: notify.send_message
-            target: !input notification_target
-            data:
-              title: "{{ title_prefix | trim or 'Lizard Care — Spot Clean' }}"
-              message: >
-                {{ configured_message | trim
-                   or pet_name ~ "'s spot clean is due today." }}
-              data:
-                url: "{{ configured_dashboard_url }}"
-                actions: >
-                  {{ [{'action': spot_clean_action_id,
-                       'title': 'Mark as Cleaned'}]
-                     if spot_clean_button_entity | trim != '' else [] }}
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: "{{ title_prefix | trim or 'Lizard Care — Spot Clean' }}"
+                    message: >
+                      {{ configured_message | trim
+                         or pet_name ~ "'s spot clean is due today." }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {{ [{'action': spot_clean_action_id,
+                             'title': 'Mark as Cleaned'}]
+                           if spot_clean_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
              not vacation_is_active and full_clean_is_enabled and
              is_state(full_clean_entity, 'due_today') }}
         sequence:
-          - action: notify.send_message
-            target: !input notification_target
-            data:
-              title: "{{ title_prefix | trim or 'Lizard Care — Full Clean' }}"
-              message: >
-                {{ configured_message | trim
-                   or pet_name ~ "'s full clean is due today." }}
-              data:
-                url: "{{ configured_dashboard_url }}"
-                actions: >
-                  {{ [{'action': full_clean_action_id,
-                       'title': 'Mark as Cleaned'}]
-                     if full_clean_button_entity | trim != '' else [] }}
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: "{{ title_prefix | trim or 'Lizard Care — Full Clean' }}"
+                    message: >
+                      {{ configured_message | trim
+                         or pet_name ~ "'s full clean is due today." }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {{ [{'action': full_clean_action_id,
+                             'title': 'Mark as Cleaned'}]
+                           if full_clean_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
@@ -407,18 +427,20 @@ actions:
                is_feeding_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
-          - action: notify.send_message
-            target: !input notification_target
-            data:
-              title: "{{ title_prefix | trim or 'Lizard Care — Feeding' }}"
-              message: >
-                {{ configured_message | trim
-                   or pet_name ~ "'s feeding is overdue." }}
-              data:
-                url: "{{ configured_dashboard_url }}"
-                actions: >
-                  {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
-                     if feed_button_entity | trim != '' else [] }}
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: "{{ title_prefix | trim or 'Lizard Care — Feeding' }}"
+                    message: >
+                      {{ configured_message | trim
+                         or pet_name ~ "'s feeding is overdue." }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
+                           if feed_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
@@ -435,19 +457,21 @@ actions:
                is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
-          - action: notify.send_message
-            target: !input notification_target
-            data:
-              title: "{{ title_prefix | trim or 'Lizard Care — Spot Clean' }}"
-              message: >
-                {{ configured_message | trim
-                   or pet_name ~ "'s spot clean is overdue." }}
-              data:
-                url: "{{ configured_dashboard_url }}"
-                actions: >
-                  {{ [{'action': spot_clean_action_id,
-                       'title': 'Mark as Cleaned'}]
-                     if spot_clean_button_entity | trim != '' else [] }}
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: "{{ title_prefix | trim or 'Lizard Care — Spot Clean' }}"
+                    message: >
+                      {{ configured_message | trim
+                         or pet_name ~ "'s spot clean is overdue." }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {{ [{'action': spot_clean_action_id,
+                             'title': 'Mark as Cleaned'}]
+                           if spot_clean_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
           {% set elapsed = as_timestamp(now()) -
@@ -463,19 +487,21 @@ actions:
                is_cleaning_repeat_boundary and
                not automation_ran_this_minute and elapsed >= 60)) }}
         sequence:
-          - action: notify.send_message
-            target: !input notification_target
-            data:
-              title: "{{ title_prefix | trim or 'Lizard Care — Full Clean' }}"
-              message: >
-                {{ configured_message | trim
-                   or pet_name ~ "'s full clean is overdue." }}
-              data:
-                url: "{{ configured_dashboard_url }}"
-                actions: >
-                  {{ [{'action': full_clean_action_id,
-                       'title': 'Mark as Cleaned'}]
-                     if full_clean_button_entity | trim != '' else [] }}
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: "{{ title_prefix | trim or 'Lizard Care — Full Clean' }}"
+                    message: >
+                      {{ configured_message | trim
+                         or pet_name ~ "'s full clean is overdue." }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {{ [{'action': full_clean_action_id,
+                             'title': 'Mark as Cleaned'}]
+                           if full_clean_button_entity | trim != '' else [] }}
 
 mode: queued
 max: 10

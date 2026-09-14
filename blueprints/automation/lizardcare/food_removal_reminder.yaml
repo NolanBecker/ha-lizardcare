@@ -25,12 +25,25 @@ blueprint:
           filter:
             domain: button
     notification_target:
-      name: Notification target
-      description: Select one or more notify entities, devices, or areas.
+      name: Legacy notification target (unused)
+      description: >
+        Retained so existing automations load. Configure Companion notification
+        services below instead.
+      default: {}
       selector:
         target:
           entity:
             domain: notify
+    notification_services:
+      name: Companion notification services
+      description: >
+        Add one fully qualified service per recipient, such as
+        notify.mobile_app_nolans_phone. Each service receives the same
+        actionable notification.
+      default: []
+      selector:
+        text:
+          multiple: true
     vacation_calendar:
       name: Vacation calendar
       description: >
@@ -179,6 +192,7 @@ variables:
        (last_run / 60) | int == (as_timestamp(now()) / 60) | int }}
   title_text: !input notification_title
   configured_dashboard_url: !input dashboard_url
+  notification_service_list: !input notification_services
   configured_message: !input notification_message
   configured_pet_name: !input pet_name_override
   vacation_calendar_entity: !input vacation_calendar
@@ -260,16 +274,19 @@ actions:
          (trigger.id in ['reminder_boundary', 'overdue_repeat'] and
           is_within_overdue_window and is_repeat_boundary and
           not automation_ran_this_minute and elapsed >= 60) }}
-  - action: notify.send_message
-    target: !input notification_target
-    data:
-      title: "{{ title_text | trim or 'Lizard Care — Food Removal' }}"
-      message: "{{ message_text }}"
-      data:
-        url: "{{ configured_dashboard_url }}"
-        actions: >
-          {{ [{'action': removal_action_id, 'title': 'Mark Food Removed'}]
-             if remove_food_button_entity | trim != '' else [] }}
+  - repeat:
+      for_each: "{{ notification_service_list }}"
+      sequence:
+        - action: "{{ repeat.item }}"
+          data:
+            title: "{{ title_text | trim or 'Lizard Care — Food Removal' }}"
+            message: "{{ message_text }}"
+            data:
+              url: "{{ configured_dashboard_url }}"
+              actions: >
+                {{ [{'action': removal_action_id,
+                     'title': 'Mark Food Removed'}]
+                   if remove_food_button_entity | trim != '' else [] }}
 
 mode: queued
 max: 10

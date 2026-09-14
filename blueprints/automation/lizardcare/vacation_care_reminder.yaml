@@ -24,12 +24,25 @@ blueprint:
           filter:
             domain: button
     notification_target:
-      name: Notification target
-      description: Select one or more notify entities, devices, or areas.
+      name: Legacy notification target (unused)
+      description: >
+        Retained so existing automations load. Configure Companion notification
+        services below instead.
+      default: {}
       selector:
         target:
           entity:
             domain: notify
+    notification_services:
+      name: Companion notification services
+      description: >
+        Add one fully qualified service per recipient, such as
+        notify.mobile_app_nolans_phone. Each service receives the same
+        actionable notification.
+      default: []
+      selector:
+        text:
+          multiple: true
     reminder_time:
       name: Reminder time
       description: Time to check for vacations beginning tomorrow.
@@ -81,6 +94,7 @@ variables:
   configured_message: !input notification_message
   title_text: !input notification_title
   configured_dashboard_url: !input dashboard_url
+  notification_service_list: !input notification_services
   pet_name: "{{ configured_pet_name | trim or 'Your pet' }}"
   message_text: >
     {{ configured_message | trim
@@ -143,16 +157,18 @@ actions:
         {{ ns.found }}
   - condition: template
     value_template: "{{ vacation_starts_tomorrow }}"
-  - action: notify.send_message
-    target: !input notification_target
-    data:
-      title: "{{ title_text | trim or 'Lizard Care — Vacation Feeding' }}"
-      message: "{{ message_text }}"
-      data:
-        url: "{{ configured_dashboard_url }}"
-        actions: >
-          {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
-             if feed_button_entity | trim != '' else [] }}
+  - repeat:
+      for_each: "{{ notification_service_list }}"
+      sequence:
+        - action: "{{ repeat.item }}"
+          data:
+            title: "{{ title_text | trim or 'Lizard Care — Vacation Feeding' }}"
+            message: "{{ message_text }}"
+            data:
+              url: "{{ configured_dashboard_url }}"
+              actions: >
+                {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
+                   if feed_button_entity | trim != '' else [] }}
 
 mode: single
 max_exceeded: silent

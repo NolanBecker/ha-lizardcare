@@ -123,7 +123,8 @@ Alternatively, copy all three repository files into
 2. Find **Lizard Care — Care Reminders** and select **Create automation**.
 3. Choose one pet's Feeding Status, Spot Clean Status, and Full Clean Status
    sensors.
-4. Choose the notify target, optional Vacation calendar, reminder time, enabled care categories, and
+4. Enter one or more Companion notification services, choose the optional
+   Vacation calendar, reminder time, enabled care categories, and
    overdue repeat intervals. Each category has a numeric value and an
    independent **Minutes** or **Hours** unit. Feeding defaults to **1 hour**;
    Spot Clean and Full Clean share a cleaning interval that defaults to
@@ -147,6 +148,19 @@ history and scheduling exactly as pressing that button in Home Assistant would.
 Action IDs include the automation entity ID and task, isolating different pets
 and blueprint instances. When multiple recipients receive a notification,
 either recipient can complete the same underlying care action.
+
+For actionable delivery, enter each recipient as a fully qualified Companion
+App notify service, such as `notify.mobile_app_nolans_phone` or
+`notify.mobile_app_iphone`. Add both services to send the same notification to
+Android and iOS. The blueprints call each service directly because the generic
+entity-based `notify.send_message` action rejects Companion-specific nested
+`url` and `actions` data.
+
+After re-importing this blueprint version, edit every existing automation and
+populate **Companion notification services**. The old notify entity target is
+retained as an unused legacy input so existing automation YAML continues to
+load, but it no longer delivers notifications. Copy the service names from
+**Developer tools → Actions**; they normally begin with `notify.mobile_app_`.
 
 At the selected Reminder Time, `due_today` notices are sent once. An `overdue`
 transition sends immediately, and a minute-level check honors the configured
@@ -172,7 +186,8 @@ recreated.
 
 1. Find **Lizard Care — Food Removal Reminder** and select **Create
    automation**.
-2. Choose the pet's Food Removal Status sensor and a notify target.
+2. Choose the pet's Food Removal Status sensor and enter its Companion
+   notification service or services.
 3. Set **Reminder time / schedule anchor** to the same local time as the pet's
    **Food removal anchor time** integration option.
 4. Choose the daily overdue-reminder End Time and a repeat value/unit, such as
@@ -202,7 +217,8 @@ the automation does not need to be recreated.
 
 1. Find **Lizard Care — Vacation Care Reminder** and select **Create
    automation**.
-2. Choose the pet's Vacation calendar and notify target.
+2. Choose the pet's Vacation calendar and enter its Companion notification
+   service or services.
 3. Set the day-before Reminder Time (default 4:00 PM), enter the pet name, and
    optionally customize the title or message.
 4. Save the automation.

@@ -59,7 +59,7 @@ def test_food_removal_blueprint_uses_event_driven_architecture() -> None:
         "startup",
         "notification_action",
     }
-    assert not any("repeat" in action for action in document["actions"])
+    assert "delay:" not in path.read_text()
 
 
 def test_food_removal_blueprint_inputs_and_defaults() -> None:
@@ -79,6 +79,8 @@ def test_food_removal_blueprint_inputs_and_defaults() -> None:
     } == {"minutes", "hours"}
     assert "repeat_interval" not in inputs
     assert inputs["vacation_calendar"]["default"] == ""
+    assert inputs["notification_services"]["default"] == []
+    assert inputs["notification_services"]["selector"]["text"]["multiple"]
 
 
 def test_food_removal_blueprint_uses_status_due_at_for_boundaries() -> None:
@@ -128,7 +130,7 @@ def test_care_reminder_blueprint_trigger_architecture() -> None:
         "startup",
         "notification_action",
     }
-    assert not any("repeat" in action for action in document["actions"])
+    assert "delay:" not in path.read_text()
 
 
 def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
@@ -141,6 +143,7 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "spot_clean_status",
         "full_clean_status",
         "notification_target",
+        "notification_services",
         "reminder_time",
         "overdue_reminder_end_time",
         "feeding_enabled",
@@ -191,7 +194,7 @@ def test_vacation_reminder_queries_tomorrow_once() -> None:
     assert "timedelta(days=1)" in blueprint
     assert "timedelta(days=2)" in blueprint
     assert "start_date == tomorrow" in blueprint
-    assert blueprint.count("action: notify.send_message") == 1
+    assert blueprint.count('action: "{{ repeat.item }}"') == 1
     assert "feeding_status" not in inputs
     assert "reminder_time_has_passed" in blueprint
     assert "reminder_already_handled_today" in blueprint
@@ -246,6 +249,12 @@ def test_notification_ux_inputs_and_payloads_are_complete() -> None:
         assert "multiline" in inputs["notification_message"]["selector"]["text"]
         assert 'url: "{{ configured_dashboard_url }}"' in blueprint
         assert "event_type: mobile_app_notification_action" in blueprint
+        assert "action: notify.send_message" not in blueprint
+        assert 'action: "{{ repeat.item }}"' in blueprint
+        assert 'for_each: "{{ notification_service_list }}"' in blueprint
+        service_input = inputs["notification_services"]
+        assert service_input["default"] == []
+        assert service_input["selector"]["text"]["multiple"] is True
         for label in labels:
             assert f"'title': '{label}'" in blueprint
 
@@ -256,6 +265,33 @@ def test_notification_ux_inputs_and_payloads_are_complete() -> None:
     assert care_inputs["feed_button"]["default"] == ""
     assert care_inputs["spot_clean_button"]["default"] == ""
     assert care_inputs["full_clean_button"]["default"] == ""
+
+
+def test_companion_payload_preserves_nested_mobile_data() -> None:
+    """Companion service calls retain URL and actionable-notification data."""
+    for filename in (
+        "care_reminders.yaml",
+        "food_removal_reminder.yaml",
+        "vacation_care_reminder.yaml",
+    ):
+        blueprint = (BLUEPRINT_DIR / filename).read_text()
+        assert 'action: "{{ repeat.item }}"' in blueprint
+        assert 'url: "{{ configured_dashboard_url }}"' in blueprint
+        assert "actions: >" in blueprint
+        assert "notification_service_list: !input notification_services" in blueprint
+
+
+def test_multiple_companion_recipients_use_for_each_delivery() -> None:
+    """Each configured mobile service receives the same payload."""
+    services = [
+        "notify.mobile_app_android_phone",
+        "notify.mobile_app_iphone",
+    ]
+
+    assert list(services) == [
+        "notify.mobile_app_android_phone",
+        "notify.mobile_app_iphone",
+    ]
 
 
 def test_contextual_actions_route_to_selected_buttons() -> None:
