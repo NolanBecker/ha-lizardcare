@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    EVENT_JOURNAL_UPDATED,
     STATE_FOOD_IN_ENCLOSURE,
     STATE_LAST_FED,
     STATE_LAST_FOOD_REMOVED,
@@ -43,6 +44,8 @@ class LizardCareData:
         self.food_in_enclosure = False
         self.last_spot_clean: datetime | None = None
         self.last_full_clean: datetime | None = None
+        self._hass = hass
+        self.entry_id = entry_id
         self._listeners: set[Callable[[], None]] = set()
         self._update_lock = asyncio.Lock()
         self._store = Store[CareStateStorage](
@@ -83,6 +86,7 @@ class LizardCareData:
                 timestamp=self.last_fed,
                 source=JournalSource.AUTOMATIC,
             )
+            self._async_fire_journal_updated()
             self._async_notify_listeners()
 
     async def async_remove_food(self) -> None:
@@ -96,6 +100,7 @@ class LizardCareData:
                 timestamp=self.last_food_removed,
                 source=JournalSource.AUTOMATIC,
             )
+            self._async_fire_journal_updated()
             self._async_notify_listeners()
 
     async def async_spot_clean(self) -> None:
@@ -108,6 +113,7 @@ class LizardCareData:
                 timestamp=self.last_spot_clean,
                 source=JournalSource.AUTOMATIC,
             )
+            self._async_fire_journal_updated()
             self._async_notify_listeners()
 
     async def async_full_clean(self) -> None:
@@ -120,6 +126,7 @@ class LizardCareData:
                 timestamp=self.last_full_clean,
                 source=JournalSource.AUTOMATIC,
             )
+            self._async_fire_journal_updated()
             self._async_notify_listeners()
 
     async def async_add_journal_entry(
@@ -138,6 +145,7 @@ class LizardCareData:
             source=JournalSource.MANUAL,
             metadata=metadata,
         )
+        self._async_fire_journal_updated()
         self._async_notify_listeners()
         return entry
 
@@ -145,8 +153,17 @@ class LizardCareData:
         """Delete one journal entry and refresh entities when changed."""
         deleted = await self.journal.async_delete_entry(entry_id)
         if deleted:
+            self._async_fire_journal_updated()
             self._async_notify_listeners()
         return deleted
+
+    @callback
+    def _async_fire_journal_updated(self) -> None:
+        """Publish a lightweight refresh signal without journal content."""
+        self._hass.bus.async_fire(
+            EVENT_JOURNAL_UPDATED,
+            {"entry_id": self.entry_id},
+        )
 
     async def async_set_last_fed(self, value: datetime) -> None:
         """Correct the last-fed timestamp and reconcile enclosure state."""

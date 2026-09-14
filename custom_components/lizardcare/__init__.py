@@ -7,8 +7,10 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import LizardCareData
+from .frontend import async_register_frontend
 from .profile import get_pet_profile
 from .services import async_setup_services
+from .websocket_api import async_register_websocket_commands
 
 PLATFORMS = (
     Platform.SENSOR,
@@ -23,6 +25,8 @@ LizardCareConfigEntry = ConfigEntry[LizardCareData]
 async def async_setup(hass: HomeAssistant, config: dict[str, object]) -> bool:
     """Set up integration-level journal actions."""
     await async_setup_services(hass)
+    async_register_websocket_commands(hass)
+    await async_register_frontend(hass)
     return True
 
 

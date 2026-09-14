@@ -124,6 +124,58 @@ The **Last Journal Activity** timestamp sensor exposes only the latest journal
 entry's event type, source, note, and entry ID as small attributes. The complete
 journal is never placed in entity state or attributes.
 
+### Care History dashboard card
+
+Lizard Care includes a dependency-free `custom:lizard-care-history-card`. The
+integration serves its JavaScript from the installed custom component, so HACS
+integration updates replace the card file automatically. Home Assistant still
+requires a one-time Lovelace resource registration:
+
+1. Open **Settings → Dashboards → Resources**.
+2. Add `/lizardcare/lizard-care-history-card.js` as a **JavaScript Module**.
+3. Reload the browser after restarting Home Assistant.
+
+The card uses the pet's **Last Journal Activity** entity to resolve the correct
+config entry. It retrieves entries over an authenticated Lizard Care WebSocket
+command and listens for lightweight journal-update events, refreshing only when
+that pet changes. It does not poll or place history in entity attributes.
+
+Recent Activity with five entries:
+
+```yaml
+type: custom:lizard-care-history-card
+entity: sensor.pixel_last_journal_activity
+title: Recent Activity
+limit: 5
+show_view_all: true
+view_all_hash: "#pixel-history"
+```
+
+For a Bubble Card popup followed by a 50-entry history card, add these cards in
+sequence to the same view:
+
+```yaml
+type: custom:bubble-card
+card_type: pop-up
+hash: "#pixel-history"
+name: Care History
+icon: mdi:notebook-outline
+```
+
+```yaml
+type: custom:lizard-care-history-card
+entity: sensor.pixel_last_journal_activity
+title: Care History
+limit: 50
+show_view_all: false
+```
+
+The component is reusable for every pet: change `entity` to that pet's Last
+Journal Activity sensor and optionally choose a different popup hash. It shows
+loading, empty, and retrieval-error states; groups timestamps using Home
+Assistant's configured timezone; uses localized times and friendly date
+headings; and displays notes or structured Weight values when available.
+
 ## Automation blueprints
 
 The repository includes:

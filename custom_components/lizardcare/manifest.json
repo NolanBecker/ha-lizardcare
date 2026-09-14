@@ -4,7 +4,8 @@
   "codeowners": [],
   "config_flow": true,
   "documentation": "https://github.com/NolanBecker/ha-lizardcare",
+  "dependencies": ["http", "websocket_api"],
   "integration_type": "device",
   "requirements": [],
-  "version": "0.23.0"
+  "version": "0.24.0"
 }

@@ -35,6 +35,24 @@ class FakeStore:
         self.save_count += 1
 
 
+class FakeBus:
+    """Capture journal refresh events."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, str]]] = []
+
+    def async_fire(self, event_type: str, data: dict[str, str]) -> None:
+        """Record one event."""
+        self.events.append((event_type, data))
+
+
+class FakeHass:
+    """Provide the event bus used by the runtime."""
+
+    def __init__(self) -> None:
+        self.bus = FakeBus()
+
+
 def test_first_run_and_manual_entry_persist_across_reload() -> None:
     """An absent journal is safe and a saved entry survives recreation."""
     store = FakeStore()
@@ -136,6 +154,8 @@ def _care_data(manager: JournalManager) -> LizardCareData:
     data._update_lock = asyncio.Lock()
     data._listeners = set()
     data._async_save = AsyncMock()  # type: ignore[method-assign]
+    data._hass = FakeHass()
+    data.entry_id = "pet-one"
     data.journal = manager
     return data
 
@@ -164,6 +184,22 @@ def test_each_care_action_creates_exactly_one_entry(
     assert entries[0].event_type == event_type
     assert entries[0].source == JournalSource.AUTOMATIC
     data._async_save.assert_awaited_once()  # type: ignore[attr-defined]
+    assert data._hass.bus.events == [
+        ("lizardcare_journal_updated", {"entry_id": "pet-one"})
+    ]
+
+
+def test_manual_add_and_delete_emit_update_events() -> None:
+    """Manual mutations notify subscribed cards without polling."""
+    manager = JournalManager(None, "pet-one", store=FakeStore())  # type: ignore[arg-type]
+    data = _care_data(manager)
+
+    entry = asyncio.run(data.async_add_journal_entry(JournalEventType.NOTE))
+    assert asyncio.run(data.async_delete_journal_entry(entry.entry_id))
+    assert data._hass.bus.events == [
+        ("lizardcare_journal_updated", {"entry_id": "pet-one"}),
+        ("lizardcare_journal_updated", {"entry_id": "pet-one"}),
+    ]
 
 
 def test_manual_timestamp_corrections_do_not_log_history() -> None:
