@@ -20,6 +20,7 @@ from .const import (
     STATE_LAST_SPOT_CLEAN,
     STORAGE_VERSION,
 )
+from .journal import JournalEntry, JournalEventType, JournalManager, JournalSource
 
 
 class CareStateStorage(TypedDict, total=False):
@@ -47,10 +48,12 @@ class LizardCareData:
         self._store = Store[CareStateStorage](
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry_id}"
         )
+        self.journal = JournalManager(hass, entry_id)
 
     async def async_load(self) -> None:
         """Load this pet's persisted care state."""
         stored = await self._store.async_load()
+        await self.journal.async_load()
         if stored is None:
             return
 
@@ -74,30 +77,76 @@ class LizardCareData:
         async with self._update_lock:
             self.last_fed = dt_util.utcnow()
             self.food_in_enclosure = True
-            self._async_notify_listeners()
             await self._async_save()
+            await self.journal.async_add_entry(
+                JournalEventType.FEEDING,
+                timestamp=self.last_fed,
+                source=JournalSource.AUTOMATIC,
+            )
+            self._async_notify_listeners()
 
     async def async_remove_food(self) -> None:
         """Record food removal and mark food as removed."""
         async with self._update_lock:
             self.last_food_removed = dt_util.utcnow()
             self.food_in_enclosure = False
-            self._async_notify_listeners()
             await self._async_save()
+            await self.journal.async_add_entry(
+                JournalEventType.FOOD_REMOVED,
+                timestamp=self.last_food_removed,
+                source=JournalSource.AUTOMATIC,
+            )
+            self._async_notify_listeners()
 
     async def async_spot_clean(self) -> None:
         """Record a spot clean."""
         async with self._update_lock:
             self.last_spot_clean = dt_util.utcnow()
-            self._async_notify_listeners()
             await self._async_save()
+            await self.journal.async_add_entry(
+                JournalEventType.SPOT_CLEAN,
+                timestamp=self.last_spot_clean,
+                source=JournalSource.AUTOMATIC,
+            )
+            self._async_notify_listeners()
 
     async def async_full_clean(self) -> None:
         """Record a full enclosure clean."""
         async with self._update_lock:
             self.last_full_clean = dt_util.utcnow()
-            self._async_notify_listeners()
             await self._async_save()
+            await self.journal.async_add_entry(
+                JournalEventType.FULL_CLEAN,
+                timestamp=self.last_full_clean,
+                source=JournalSource.AUTOMATIC,
+            )
+            self._async_notify_listeners()
+
+    async def async_add_journal_entry(
+        self,
+        event_type: str,
+        *,
+        timestamp: datetime | None = None,
+        note: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> JournalEntry:
+        """Add a manual journal entry and refresh entities."""
+        entry = await self.journal.async_add_entry(
+            event_type,
+            timestamp=timestamp,
+            note=note,
+            source=JournalSource.MANUAL,
+            metadata=metadata,
+        )
+        self._async_notify_listeners()
+        return entry
+
+    async def async_delete_journal_entry(self, entry_id: str) -> bool:
+        """Delete one journal entry and refresh entities when changed."""
+        deleted = await self.journal.async_delete_entry(entry_id)
+        if deleted:
+            self._async_notify_listeners()
+        return deleted
 
     async def async_set_last_fed(self, value: datetime) -> None:
         """Correct the last-fed timestamp and reconcile enclosure state."""

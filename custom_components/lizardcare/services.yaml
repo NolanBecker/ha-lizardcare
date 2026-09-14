@@ -1,0 +1,152 @@
+add_journal_entry:
+  name: Add journal entry
+  description: Add a manual care or observation entry for one pet.
+  fields:
+    device_id:
+      name: Pet
+      required: true
+      selector:
+        device:
+          filter:
+            integration: lizardcare
+    event_type:
+      name: Event type
+      required: true
+      selector:
+        select:
+          options:
+            - label: Note
+              value: note
+            - label: Feeding
+              value: feeding
+            - label: Food Removed
+              value: food_removed
+            - label: Spot Clean
+              value: spot_clean
+            - label: Full Clean
+              value: full_clean
+            - label: Shed
+              value: shed
+            - label: Weight
+              value: weight
+            - label: Enclosure
+              value: enclosure
+            - label: Health
+              value: health
+            - label: Other
+              value: other
+    note:
+      name: Note
+      required: false
+      selector:
+        text:
+          multiline: true
+    timestamp:
+      name: Timestamp
+      description: Optional timezone-aware timestamp; defaults to now.
+      required: false
+      selector:
+        datetime:
+    metadata:
+      name: Metadata
+      description: Optional structured values, such as weight and unit.
+      required: false
+      selector:
+        object:
+    weight_value:
+      name: Weight value
+      description: Required for Weight entries; must be greater than zero.
+      required: false
+      selector:
+        number:
+          min: 0.01
+          step: any
+          mode: box
+    weight_unit:
+      name: Weight unit
+      description: Required for Weight entries.
+      required: false
+      selector:
+        select:
+          options:
+            - label: Grams
+              value: g
+            - label: Ounces
+              value: oz
+
+delete_journal_entry:
+  name: Delete journal entry
+  description: Delete one journal entry by its stable entry ID.
+  fields:
+    device_id:
+      name: Pet
+      required: true
+      selector:
+        device:
+          filter:
+            integration: lizardcare
+    entry_id:
+      name: Entry ID
+      required: true
+      selector:
+        text:
+
+get_journal_entries:
+  name: Get journal entries
+  description: Return recent journal entries for one pet, newest first.
+  fields:
+    device_id:
+      name: Pet
+      required: true
+      selector:
+        device:
+          filter:
+            integration: lizardcare
+    limit:
+      name: Limit
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 1000
+          step: 1
+          mode: box
+    event_type:
+      name: Event type
+      description: Optional event type to include.
+      required: false
+      selector:
+        select:
+          options:
+            - label: Note
+              value: note
+            - label: Feeding
+              value: feeding
+            - label: Food Removed
+              value: food_removed
+            - label: Spot Clean
+              value: spot_clean
+            - label: Full Clean
+              value: full_clean
+            - label: Shed
+              value: shed
+            - label: Weight
+              value: weight
+            - label: Enclosure
+              value: enclosure
+            - label: Health
+              value: health
+            - label: Other
+              value: other
+    start_datetime:
+      name: Start datetime
+      description: Optional inclusive lower timestamp bound.
+      required: false
+      selector:
+        datetime:
+    end_datetime:
+      name: End datetime
+      description: Optional inclusive upper timestamp bound.
+      required: false
+      selector:
+        datetime:

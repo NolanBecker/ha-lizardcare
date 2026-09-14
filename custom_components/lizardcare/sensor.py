@@ -173,6 +173,13 @@ FOOD_REMOVAL_STATUS_DESCRIPTION = SensorEntityDescription(
     options=[status.value for status in FoodRemovalStatus],
 )
 
+LAST_JOURNAL_ACTIVITY_DESCRIPTION = SensorEntityDescription(
+    key="last_journal_activity",
+    translation_key="last_journal_activity",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    icon="mdi:notebook-outline",
+)
+
 
 class LizardCareSensorTimeUpdater:
     """Share minute and local-midnight updates across sensor entities."""
@@ -348,8 +355,44 @@ async def async_setup_entry(
             LizardCareOverallCareStatusSensor(entry, time_updater),
             LizardCareFoodRemovalStatusSensor(entry, time_updater),
             LizardCareLastCareActivitySensor(entry, time_updater),
+            LizardCareLastJournalActivitySensor(entry),
         ]
     )
+
+
+class LizardCareLastJournalActivitySensor(LizardCareEntity, SensorEntity):
+    """Expose only the latest journal entry as lightweight entity state."""
+
+    entity_description = LAST_JOURNAL_ACTIVITY_DESCRIPTION
+
+    def __init__(self, entry: LizardCareConfigEntry) -> None:
+        """Initialize the latest journal activity sensor."""
+        super().__init__(
+            entry.runtime_data,
+            entry.entry_id,
+            LAST_JOURNAL_ACTIVITY_DESCRIPTION,
+        )
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the newest journal timestamp."""
+        latest = self._data.journal.latest_entry
+        return latest.timestamp if latest is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Return small identifying details for the newest entry."""
+        latest = self._data.journal.latest_entry
+        if latest is None:
+            return None
+        attributes = {
+            "entry_id": latest.entry_id,
+            "event_type": latest.event_type,
+            "source": latest.source,
+        }
+        if latest.note is not None:
+            attributes["note"] = latest.note[:255]
+        return attributes
 
 
 class LizardCareTimestampSensor(LizardCareEntity, SensorEntity):

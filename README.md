@@ -78,6 +78,52 @@ calendar month, restarts, reloads, and duplicate completion presses do not
 advance a mutable counter. On a Full Clean occurrence, Spot Clean is skipped;
 completing the Full Clean satisfies that monthly cleaning occurrence.
 
+## Care History journal
+
+Each pet has a durable, chronological Care History journal. Pressing **Feed**,
+**Remove Food**, **Spot Clean**, or **Full Clean** automatically records one
+entry alongside the existing care-state update. Timestamp corrections do not
+create journal entries and the journal does not replace the timestamps used for
+scheduling.
+
+Journal data is stored locally in Home Assistant's `.storage` directory in a
+separate versioned file per config entry. It survives restarts and is independent
+of Recorder database retention and purges. Notes and optional structured metadata
+remain on the Home Assistant host; they are not sent externally by Lizard Care.
+
+The integration provides these actions under the `lizardcare` domain:
+
+- `lizardcare.add_journal_entry` adds a manual Note, Feeding, Food Removed,
+  Spot Clean, Full Clean, Shed, Weight, Enclosure, Health, or Other event. Select
+  the pet device and optionally provide a note, timezone-aware timestamp, or
+  metadata such as `{weight: 42, unit: g}`.
+- `lizardcare.delete_journal_entry` deletes one entry by its stable ID. There is
+  intentionally no bulk-clear action.
+- `lizardcare.get_journal_entries` returns the selected pet's entries newest
+  first for scripts, developer tools, and future dashboard integrations. It can
+  filter by event type and inclusive start/end datetimes; all filters combine,
+  and the 1–1000 limit is applied afterward.
+
+For a manual Weight entry, provide **Weight value** greater than zero and choose
+`g` or `oz` as **Weight unit**. These are normalized into metadata such as
+`{value: 42.5, unit: g}`. Home Assistant service selectors cannot conditionally
+hide fields based on another field, so Weight value/unit remain visible for all
+event types and are only required and processed when Event type is Weight.
+
+Example action data:
+
+```yaml
+action: lizardcare.add_journal_entry
+data:
+  device_id: YOUR_LIZARD_CARE_DEVICE_ID
+  event_type: shed
+  note: Shed looks almost complete
+```
+
+The **Last Journal Activity** timestamp sensor exposes only the latest journal
+entry's event type, source, note, and entry ID as small attributes. The complete
+journal is never placed in entity state or attributes.
+
 ## Automation blueprints
 
 The repository includes:

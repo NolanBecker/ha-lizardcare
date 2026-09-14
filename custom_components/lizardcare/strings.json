@@ -85,6 +85,44 @@
       "invalid_day_of_month": "Enter a whole number from 1 through 31"
     }
   },
+  "services": {
+    "add_journal_entry": {
+      "name": "Add journal entry",
+      "description": "Add a manual care or observation entry for one pet.",
+      "fields": {
+        "weight_value": {
+          "name": "Weight value",
+          "description": "Required for Weight entries and must be greater than zero."
+        },
+        "weight_unit": {
+          "name": "Weight unit",
+          "description": "Required for Weight entries; choose grams or ounces."
+        }
+      }
+    },
+    "get_journal_entries": {
+      "name": "Get journal entries",
+      "description": "Return filtered journal entries for one pet, newest first.",
+      "fields": {
+        "event_type": {
+          "name": "Event type",
+          "description": "Optional event type to include."
+        },
+        "start_datetime": {
+          "name": "Start datetime",
+          "description": "Optional inclusive lower timestamp bound."
+        },
+        "end_datetime": {
+          "name": "End datetime",
+          "description": "Optional inclusive upper timestamp bound."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum entries returned after all filters are applied."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "last_fed": {
@@ -174,6 +212,9 @@
           "spot_clean": "Spot Clean",
           "full_clean": "Full Clean"
         }
+      },
+      "last_journal_activity": {
+        "name": "Last Journal Activity"
       }
     },
     "binary_sensor": {
