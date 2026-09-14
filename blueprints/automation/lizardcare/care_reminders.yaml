@@ -225,6 +225,7 @@ actions:
       - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
              spot_clean_is_enabled and
+             not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'due_today') }}
         sequence:
           - action: notify.send_message
@@ -268,6 +269,7 @@ actions:
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[spot_clean_entity].last_changed) %}
           {{ send_overdue and spot_clean_is_enabled and
+             not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'overdue') and
              (trigger.id == 'spot_clean_overdue' or
               (trigger.id == 'startup' and

@@ -21,6 +21,7 @@ from .const import (
     CONF_FULL_CLEAN_EVERY,
     CONF_FULL_CLEAN_INTERVAL_DAYS,
     CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
+    CONF_SPOT_CLEAN_ENABLED,
     CONF_SPOT_CLEAN_INTERVAL_DAYS,
     DEFAULT_CLEANING_DAY_OF_MONTH,
     DEFAULT_CLEANING_SCHEDULE_MODE,
@@ -28,6 +29,7 @@ from .const import (
     DEFAULT_FULL_CLEAN_EVERY,
     DEFAULT_FULL_CLEAN_INTERVAL_DAYS,
     DEFAULT_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
+    DEFAULT_SPOT_CLEAN_ENABLED,
     DEFAULT_SPOT_CLEAN_INTERVAL_DAYS,
 )
 
@@ -38,6 +40,7 @@ class CareStatus(StrEnum):
     NOT_DUE = "not_due"
     DUE_TODAY = "due_today"
     OVERDUE = "overdue"
+    DISABLED = "disabled"
 
 
 class OverallCareStatus(StrEnum):
@@ -70,6 +73,7 @@ class CareSchedule:
     """Resolved care intervals for one pet."""
 
     feeding_interval_days: int
+    spot_clean_enabled: bool
     spot_clean_interval_days: int
     full_clean_interval_days: int
     full_clean_satisfies_spot_clean: bool
@@ -147,6 +151,11 @@ def get_care_schedule(entry: ConfigEntry) -> CareSchedule:
             entry,
             CONF_FEEDING_INTERVAL_DAYS,
             DEFAULT_FEEDING_INTERVAL_DAYS,
+        ),
+        spot_clean_enabled=_boolean_option(
+            entry,
+            CONF_SPOT_CLEAN_ENABLED,
+            DEFAULT_SPOT_CLEAN_ENABLED,
         ),
         spot_clean_interval_days=_positive_option(
             entry,

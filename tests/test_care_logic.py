@@ -1,8 +1,10 @@
 """Regression tests for care status behavior retained by the refactor."""
 
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
+from custom_components.lizardcare.const import CONF_SPOT_CLEAN_ENABLED
 from custom_components.lizardcare.instructions import get_care_instructions
 from custom_components.lizardcare.schedule import (
     CareStatus,
@@ -77,3 +79,57 @@ def test_legacy_notification_options_do_not_affect_care_helpers() -> None:
     )
     assert get_care_schedule(entry).feeding_interval_days == 3
     assert get_care_instructions(entry).feeding == "Offer insects"
+
+
+def test_spot_clean_defaults_enabled_and_can_be_disabled() -> None:
+    """Existing entries retain Spot Clean unless the option is turned off."""
+    existing_entry = SimpleNamespace(options={})
+    disabled_entry = SimpleNamespace(
+        options={
+            CONF_SPOT_CLEAN_ENABLED: False,
+            "spot_clean_interval_days": 12,
+        }
+    )
+    reenabled_entry = SimpleNamespace(
+        options={
+            CONF_SPOT_CLEAN_ENABLED: True,
+            "spot_clean_interval_days": 12,
+        }
+    )
+
+    assert get_care_schedule(existing_entry).spot_clean_enabled is True
+    assert get_care_schedule(disabled_entry).spot_clean_enabled is False
+    assert get_care_schedule(disabled_entry).spot_clean_interval_days == 12
+    assert get_care_schedule(reenabled_entry).spot_clean_interval_days == 12
+
+
+def test_disabled_status_is_ignored_by_overall_care() -> None:
+    """Disabled Spot Clean cannot worsen aggregate care state."""
+    all_good = calculate_overall_care_status(
+        {
+            "feeding": CareStatus.NOT_DUE,
+            "spot_clean": CareStatus.DISABLED,
+            "full_clean": CareStatus.NOT_DUE,
+        }
+    )
+    full_clean_overdue = calculate_overall_care_status(
+        {
+            "feeding": CareStatus.NOT_DUE,
+            "spot_clean": CareStatus.DISABLED,
+            "full_clean": CareStatus.OVERDUE,
+        }
+    )
+
+    assert all_good.status is OverallCareStatus.ALL_GOOD
+    assert full_clean_overdue.status is OverallCareStatus.OVERDUE
+    assert full_clean_overdue.overdue_items == ("full_clean",)
+
+
+def test_spot_clean_button_uses_schedule_availability() -> None:
+    """The existing Spot Clean button is unavailable through a schedule guard."""
+    button_source = (
+        Path(__file__).parents[1]
+        / "custom_components/lizardcare/button.py"
+    ).read_text()
+    assert "get_care_schedule(entry).spot_clean_enabled" in button_source
+    assert "def available(self) -> bool:" in button_source

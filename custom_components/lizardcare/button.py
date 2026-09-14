@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import LizardCareConfigEntry
 from .coordinator import LizardCareData
 from .entity import LizardCareEntity
+from .schedule import get_care_schedule
 
 BUTTON_DESCRIPTIONS = (
     ButtonEntityDescription(key="feed", translation_key="feed"),
@@ -46,6 +47,7 @@ async def async_setup_entry(
                 entry.entry_id,
                 BUTTON_DESCRIPTIONS[2],
                 data.async_spot_clean,
+                lambda: get_care_schedule(entry).spot_clean_enabled,
             ),
             LizardCareButton(
                 data,
@@ -68,10 +70,19 @@ class LizardCareButton(LizardCareEntity, ButtonEntity):
         entry_id: str,
         description: ButtonEntityDescription,
         action: Callable[[], Awaitable[None]],
+        available_fn: Callable[[], bool] | None = None,
     ) -> None:
         """Initialize a care-action button."""
         super().__init__(data, entry_id, description)
         self._action = action
+        self._available_fn = available_fn
+
+    @property
+    def available(self) -> bool:
+        """Return whether this care action is currently enabled."""
+        return super().available and (
+            self._available_fn is None or self._available_fn()
+        )
 
     async def async_press(self) -> None:
         """Handle a button press."""

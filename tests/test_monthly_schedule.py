@@ -30,9 +30,11 @@ def _schedule(
     anchor: date = date(2026, 10, 1),
     day: int = 1,
     full_clean_every: int = 3,
+    spot_clean_enabled: bool = True,
 ) -> CareSchedule:
     return CareSchedule(
         feeding_interval_days=2,
+        spot_clean_enabled=spot_clean_enabled,
         spot_clean_interval_days=7,
         full_clean_interval_days=30,
         full_clean_satisfies_spot_clean=True,
@@ -115,6 +117,37 @@ def test_every_occurrence_full_clean_has_no_spot_clean_due() -> None:
     assert plan.cleaning_occurrence_type is CleaningOccurrenceType.FULL_CLEAN
     assert plan.next_spot_clean is None
     assert plan.next_full_clean == plan.next_cleaning
+
+
+def test_full_clean_schedule_is_independent_when_spot_clean_disabled() -> None:
+    """Disabling Spot Clean does not alter deterministic Full Clean dates."""
+    enabled = calculate_monthly_cleaning_plan(
+        _schedule(spot_clean_enabled=True),
+        None,
+        None,
+    )
+    disabled = calculate_monthly_cleaning_plan(
+        _schedule(spot_clean_enabled=False),
+        None,
+        None,
+    )
+    assert disabled.next_full_clean == enabled.next_full_clean
+
+
+def test_reenabling_spot_clean_preserves_monthly_history() -> None:
+    """The same timestamps resume the saved plan after re-enabling."""
+    history = _at(2026, 10, 1)
+    disabled = calculate_monthly_cleaning_plan(
+        _schedule(spot_clean_enabled=False),
+        history,
+        None,
+    )
+    reenabled = calculate_monthly_cleaning_plan(
+        _schedule(spot_clean_enabled=True),
+        history,
+        None,
+    )
+    assert reenabled == disabled
 
 
 def test_overall_status_reflects_monthly_full_clean_due() -> None:

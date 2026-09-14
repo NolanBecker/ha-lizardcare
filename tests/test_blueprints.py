@@ -144,6 +144,17 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
     } <= inputs.keys()
 
 
+def test_disabled_spot_clean_never_notifies() -> None:
+    """Every Spot Clean notification path explicitly rejects disabled state."""
+    blueprint = (
+        BLUEPRINT_DIR / "care_reminders.yaml"
+    ).read_text()
+
+    assert blueprint.count(
+        "not is_state(spot_clean_entity, 'disabled')"
+    ) == 2
+
+
 def test_separate_repeat_interval_inputs() -> None:
     """Category-specific value and unit controls have clear defaults."""
     path = BLUEPRINT_DIR / "care_reminders.yaml"

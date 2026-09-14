@@ -35,6 +35,7 @@ from .const import (
     CONF_PET_NAME,
     CONF_SEX,
     CONF_SPECIES,
+    CONF_SPOT_CLEAN_ENABLED,
     CONF_SPOT_CLEAN_INSTRUCTIONS,
     CONF_SPOT_CLEAN_INTERVAL_DAYS,
     DEFAULT_SPECIES,
@@ -98,6 +99,7 @@ def _options_schema() -> vol.Schema:
             vol.Required(
                 CONF_FEEDING_INTERVAL_DAYS
             ): _positive_integer_selector(),
+            vol.Required(CONF_SPOT_CLEAN_ENABLED): selector.BooleanSelector(),
             vol.Required(
                 CONF_SPOT_CLEAN_INTERVAL_DAYS
             ): _positive_integer_selector(),
@@ -260,6 +262,9 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN: user_input[
                         CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN
                     ],
+                    CONF_SPOT_CLEAN_ENABLED: user_input[
+                        CONF_SPOT_CLEAN_ENABLED
+                    ],
                     CONF_CLEANING_SCHEDULE_MODE: user_input[
                         CONF_CLEANING_SCHEDULE_MODE
                     ],
@@ -299,6 +304,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             CONF_SEX: profile.sex,
             CONF_NOTES: profile.notes,
             CONF_FEEDING_INTERVAL_DAYS: schedule.feeding_interval_days,
+            CONF_SPOT_CLEAN_ENABLED: schedule.spot_clean_enabled,
             CONF_SPOT_CLEAN_INTERVAL_DAYS: schedule.spot_clean_interval_days,
             CONF_FULL_CLEAN_INTERVAL_DAYS: schedule.full_clean_interval_days,
             CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN: (

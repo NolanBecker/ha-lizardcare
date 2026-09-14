@@ -58,6 +58,14 @@ Cleaning can use either scheduling mode:
   day—for example, day 31 becomes February 28 (or 29 in a leap year) and April
   30.
 
+**Spot Clean enabled** defaults on for backward compatibility. When disabled,
+Spot Clean Status reports `disabled`, Next Spot Clean has no timestamp and
+therefore displays as unknown, and the Spot Clean button is unavailable. Last
+Spot Clean history, its correction control, instructions, and saved schedule
+settings remain intact so re-enabling Spot Clean resumes the previous setup.
+Overall Care Status and reminder automations ignore disabled Spot Clean, while
+Full Clean continues on its own interval or monthly cadence.
+
 Monthly mode also provides **Full clean every** and **Full-clean cycle anchor**.
 The anchor's month is occurrence 1, and every Nth occurrence is a Full Clean.
 For an October anchor and a cadence of 3, October and November are Spot Cleans,

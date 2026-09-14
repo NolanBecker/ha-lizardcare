@@ -128,7 +128,11 @@ STATUS_DESCRIPTIONS = (
         key="feeding_status",
         translation_key="feeding_status",
         device_class=SensorDeviceClass.ENUM,
-        options=[status.value for status in CareStatus],
+        options=[
+            status.value
+            for status in CareStatus
+            if status is not CareStatus.DISABLED
+        ],
     ),
     SensorEntityDescription(
         key="spot_clean_status",
@@ -140,7 +144,11 @@ STATUS_DESCRIPTIONS = (
         key="full_clean_status",
         translation_key="full_clean_status",
         device_class=SensorDeviceClass.ENUM,
-        options=[status.value for status in CareStatus],
+        options=[
+            status.value
+            for status in CareStatus
+            if status is not CareStatus.DISABLED
+        ],
     ),
 )
 
@@ -512,12 +520,12 @@ class LizardCareNextDueSensor(LizardCareEntity, SensorEntity):
     @property
     def extra_state_attributes(
         self,
-    ) -> dict[str, str | int | datetime] | None:
+    ) -> dict[str, str | int | datetime | bool] | None:
         """Return a calendar-aware relative due description."""
         value = self.native_value
         if value is None:
             return None
-        attributes: dict[str, str | int | datetime] = {
+        attributes: dict[str, str | int | datetime | bool] = {
             "relative_time": format_scheduled_relative_time(value)
         }
         attributes.update(
@@ -566,8 +574,10 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return the calculated schedule status."""
-        next_due = self._next_due_fn(self._entry, self._data)
         schedule = get_care_schedule(self._entry)
+        if self._task_key == "spot_clean" and not schedule.spot_clean_enabled:
+            return CareStatus.DISABLED.value
+        next_due = self._next_due_fn(self._entry, self._data)
         if (
             self._task_key == "spot_clean"
             and schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY
@@ -728,10 +738,10 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
     @property
     def extra_state_attributes(
         self,
-    ) -> dict[str, list[str] | str | int | datetime]:
+    ) -> dict[str, list[str] | str | int | datetime | bool]:
         """Explain which care items contribute to the aggregate state."""
         result = self._calculate_result()
-        attributes: dict[str, list[str] | str | int | datetime] = {
+        attributes: dict[str, list[str] | str | int | datetime | bool] = {
             "attention_items": list(result.attention_items),
             "overdue_items": list(result.overdue_items),
             "summary": _care_status_summary(result),
@@ -912,6 +922,8 @@ def _next_spot_clean_due(
 ) -> datetime | None:
     """Return the next spot-clean date for the configured schedule mode."""
     schedule = get_care_schedule(entry)
+    if not schedule.spot_clean_enabled:
+        return None
     if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY:
         return _monthly_cleaning_plan(entry, data).next_spot_clean
     return calculate_next_due(
@@ -942,6 +954,8 @@ def _cleaning_status(
 ) -> CareStatus | None:
     """Return a cleaning status, including an intentionally skipped Spot Clean."""
     schedule = get_care_schedule(entry)
+    if task_key == "spot_clean" and not schedule.spot_clean_enabled:
+        return CareStatus.DISABLED
     if (
         task_key == "spot_clean"
         and schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY
@@ -960,13 +974,14 @@ def _cleaning_schedule_attributes(
     entry: LizardCareConfigEntry,
     data: LizardCareData,
     task_key: str,
-) -> dict[str, str | int | datetime]:
+) -> dict[str, str | int | datetime | bool]:
     """Return monthly context for existing cleaning entities."""
     if task_key not in ("spot_clean", "full_clean"):
         return {}
     schedule = get_care_schedule(entry)
-    attributes: dict[str, str | int | datetime] = {
+    attributes: dict[str, str | int | datetime | bool] = {
         "schedule_mode": schedule.cleaning_schedule_mode,
+        "spot_clean_enabled": schedule.spot_clean_enabled,
     }
     if schedule.cleaning_schedule_mode != CLEANING_SCHEDULE_MONTHLY:
         return attributes
