@@ -1,8 +1,9 @@
 blueprint:
   name: Lizard Care — Food Removal Reminder
   description: >
-    Notify when Lizard Care reports that food is due for removal, then repeat
-    while the Food Removal Status remains due or overdue.
+    Notify immediately when Lizard Care reports that food is due for removal,
+    then repeat on due-time-anchored boundaries within a daily notification
+    window while Food Removal Status remains due or overdue.
   domain: automation
   author: Lizard Care
   source_url: https://github.com/NolanBecker/ha-lizardcare/blob/main/blueprints/automation/lizardcare/food_removal_reminder.yaml
@@ -22,16 +23,43 @@ blueprint:
         target:
           entity:
             domain: notify
-    repeat_interval:
-      name: Repeat interval
+    reminder_time:
+      name: Reminder time / schedule anchor
+      description: >
+        Start of the daily recurring-reminder window. Set this to the same
+        local time as the integration's Food removal anchor time.
+      default: "19:00:00"
+      selector:
+        time:
+    overdue_reminder_end_time:
+      name: Overdue reminder end time
+      description: >
+        Inclusive local time when recurring reminders stop. Earlier times
+        create a window across midnight.
+      default: "23:00:00"
+      selector:
+        time:
+    food_removal_repeat_interval:
+      name: Food removal repeat interval
+      description: Numeric interval between recurring removal reminders.
       default: 1
       selector:
         number:
           min: 1
-          max: 168
+          max: 10080
           step: 1
-          unit_of_measurement: hours
           mode: box
+    food_removal_repeat_interval_unit:
+      name: Food removal repeat interval unit
+      default: hours
+      selector:
+        select:
+          options:
+            - label: Minutes
+              value: minutes
+            - label: Hours
+              value: hours
+          mode: dropdown
     pet_name_override:
       name: Pet name override
       description: >
@@ -67,20 +95,59 @@ triggers:
     from: not_needed
     to: overdue
     id: overdue
+  - trigger: state
+    entity_id: !input food_removal_status
+    from: due
+    to: overdue
+    id: overdue_progression
+  - trigger: time
+    at: !input reminder_time
+    id: reminder_boundary
+  - trigger: time_pattern
+    minutes: "*"
+    id: overdue_repeat
   - trigger: homeassistant
     event: start
-    id: resume
-  - trigger: state
-    entity_id: !input food_removal_status
-    to: not_needed
-    id: resolved
-  - trigger: state
-    entity_id: !input food_removal_status
-    to: pending
-    id: resolved
+    id: startup
 
 variables:
   status_entity: !input food_removal_status
+  configured_reminder_time: !input reminder_time
+  configured_overdue_end_time: !input overdue_reminder_end_time
+  repeat_value: !input food_removal_repeat_interval
+  repeat_unit: !input food_removal_repeat_interval_unit
+  repeat_interval_minutes: >
+    {{ repeat_value | int * 60
+       if repeat_unit == 'hours'
+       else repeat_value | int }}
+  due_at_value: "{{ state_attr(status_entity, 'due_at') }}"
+  minutes_from_due_boundary: >
+    {% set due_at = as_datetime(due_at_value, none) %}
+    {% if due_at is none %}
+      {{ none }}
+    {% else %}
+      {% set local_due = as_local(due_at) %}
+      {{ now().toordinal() * 1440 + now().hour * 60 + now().minute -
+         (local_due.toordinal() * 1440 +
+          local_due.hour * 60 + local_due.minute) }}
+    {% endif %}
+  is_repeat_boundary: >
+    {{ minutes_from_due_boundary is not none and
+       minutes_from_due_boundary | int >= 0 and
+       minutes_from_due_boundary | int % repeat_interval_minutes | int == 0 }}
+  is_within_overdue_window: >
+    {% set start = today_at(configured_reminder_time) %}
+    {% set end = today_at(configured_overdue_end_time) %}
+    {% set current_minutes = now().hour * 60 + now().minute %}
+    {% set start_minutes = start.hour * 60 + start.minute %}
+    {% set end_minutes = end.hour * 60 + end.minute %}
+    {{ start_minutes <= current_minutes <= end_minutes
+       if start_minutes <= end_minutes
+       else current_minutes >= start_minutes or current_minutes <= end_minutes }}
+  automation_ran_this_minute: >
+    {% set last_run = as_timestamp(this.attributes.last_triggered, 0) %}
+    {{ last_run > 0 and
+       (last_run / 60) | int == (as_timestamp(now()) / 60) | int }}
   title_text: !input notification_title
   configured_message: !input notification_message
   configured_pet_name: !input pet_name_override
@@ -94,38 +161,28 @@ variables:
 
 conditions:
   - condition: template
-    value_template: >
-      {{ trigger.id in ['due', 'overdue'] or
-         (trigger.id == 'resume' and
-          states(status_entity) in ['due', 'overdue']) }}
+    value_template: "{{ states(status_entity) in ['due', 'overdue'] }}"
 
 actions:
-  - if:
-      - condition: template
-        value_template: >
-          {{ trigger.id == 'due' or
-             (trigger.id == 'overdue' and trigger.from_state is not none and
-              trigger.from_state.state not in ['due', 'overdue']) }}
-    then:
-      - action: notify.send_message
-        target: !input notification_target
-        data:
-          title: "{{ title_text }}"
-          message: "{{ message_text }}"
-  - repeat:
-      while:
-        - condition: template
-          value_template: "{{ states(status_entity) in ['due', 'overdue'] }}"
-      sequence:
-        - delay:
-            hours: !input repeat_interval
-        - condition: template
-          value_template: "{{ states(status_entity) in ['due', 'overdue'] }}"
-        - action: notify.send_message
-          target: !input notification_target
-          data:
-            title: "{{ title_text }}"
-            message: "{{ message_text }}"
+  - condition: template
+    value_template: >
+      {% set elapsed = as_timestamp(now()) -
+         as_timestamp(states[status_entity].last_changed) %}
+      {{ trigger.id in ['due', 'overdue'] or
+         (trigger.id == 'overdue_progression' and
+          is_within_overdue_window and is_repeat_boundary and
+          not automation_ran_this_minute) or
+         (trigger.id == 'startup' and is_within_overdue_window and
+          not automation_ran_this_minute) or
+         (trigger.id in ['reminder_boundary', 'overdue_repeat'] and
+          is_within_overdue_window and is_repeat_boundary and
+          not automation_ran_this_minute and elapsed >= 60) }}
+  - action: notify.send_message
+    target: !input notification_target
+    data:
+      title: "{{ title_text }}"
+      message: "{{ message_text }}"
 
-mode: restart
+mode: queued
+max: 10
 max_exceeded: silent

@@ -34,6 +34,74 @@ def test_blueprints_are_valid_yaml_with_automation_schema() -> None:
         assert document["actions"]
 
 
+def test_food_removal_blueprint_uses_event_driven_architecture() -> None:
+    """Food removal uses immediate, boundary, periodic, and recovery triggers."""
+    path = BLUEPRINT_DIR / "food_removal_reminder.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    trigger_ids = {trigger["id"] for trigger in document["triggers"]}
+
+    assert trigger_ids == {
+        "due",
+        "overdue",
+        "overdue_progression",
+        "reminder_boundary",
+        "overdue_repeat",
+        "startup",
+    }
+    assert not any("repeat" in action for action in document["actions"])
+
+
+def test_food_removal_blueprint_inputs_and_defaults() -> None:
+    """Repeat units and daily window inputs are exposed through selectors."""
+    path = BLUEPRINT_DIR / "food_removal_reminder.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    inputs = document["blueprint"]["input"]
+
+    assert inputs["reminder_time"]["default"] == "19:00:00"
+    assert inputs["overdue_reminder_end_time"]["default"] == "23:00:00"
+    assert inputs["food_removal_repeat_interval"]["default"] == 1
+    unit_input = inputs["food_removal_repeat_interval_unit"]
+    assert unit_input["default"] == "hours"
+    assert {
+        option["value"]
+        for option in unit_input["selector"]["select"]["options"]
+    } == {"minutes", "hours"}
+    assert "repeat_interval" not in inputs
+
+
+def test_food_removal_blueprint_uses_status_due_at_for_boundaries() -> None:
+    """Recurring reminders consume the integration's authoritative due time."""
+    blueprint = (
+        BLUEPRINT_DIR / "food_removal_reminder.yaml"
+    ).read_text()
+
+    assert "state_attr(status_entity, 'due_at')" in blueprint
+    assert "minutes_from_due_boundary" in blueprint
+    assert "repeat_value | int * 60" in blueprint
+    assert "is_within_overdue_window and is_repeat_boundary" in blueprint
+    assert blueprint.count("not automation_ran_this_minute") == 3
+    assert "trigger.id in ['due', 'overdue'] or" in blueprint
+    assert "trigger.id == 'overdue_progression'" in blueprint
+    assert "elapsed >= 60" in blueprint
+    assert "delay:" not in blueprint
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "expected_minutes"),
+    [
+        (30, "minutes", 30),
+        (1, "hours", 60),
+    ],
+)
+def test_food_removal_repeat_interval_normalization(
+    value: int,
+    unit: str,
+    expected_minutes: int,
+) -> None:
+    """Food removal repeat values normalize to one minute representation."""
+    assert _normalize_interval(value, unit) == expected_minutes
+
+
 def test_care_reminder_blueprint_trigger_architecture() -> None:
     """Due-today, immediate-overdue, repeat, and recovery triggers coexist."""
     path = BLUEPRINT_DIR / "care_reminders.yaml"

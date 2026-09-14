@@ -23,6 +23,9 @@ from .const import (
     CONF_CLEANING_SCHEDULE_MODE,
     CONF_FEEDING_INSTRUCTIONS,
     CONF_FEEDING_INTERVAL_DAYS,
+    CONF_FOOD_REMOVAL_ANCHOR_TIME,
+    CONF_FOOD_REMOVAL_DELAY,
+    CONF_FOOD_REMOVAL_DELAY_UNIT,
     CONF_FULL_CLEAN_EVERY,
     CONF_FULL_CLEAN_INSTRUCTIONS,
     CONF_FULL_CLEAN_INTERVAL_DAYS,
@@ -30,13 +33,14 @@ from .const import (
     CONF_NORMALIZED_PET_NAME,
     CONF_NOTES,
     CONF_PET_NAME,
-    CONF_REMOVE_FOOD_AFTER_HOURS,
     CONF_SEX,
     CONF_SPECIES,
     CONF_SPOT_CLEAN_INSTRUCTIONS,
     CONF_SPOT_CLEAN_INTERVAL_DAYS,
     DEFAULT_SPECIES,
     DOMAIN,
+    TIME_UNIT_HOURS,
+    TIME_UNIT_MINUTES,
 )
 from .food_removal import get_food_removal_settings
 from .instructions import clean_instruction, get_care_instructions
@@ -132,9 +136,23 @@ def _options_schema() -> vol.Schema:
             vol.Optional(CONF_FULL_CLEAN_INSTRUCTIONS): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             ),
-            vol.Required(
-                CONF_REMOVE_FOOD_AFTER_HOURS
-            ): _positive_integer_selector(),
+            vol.Required(CONF_FOOD_REMOVAL_ANCHOR_TIME): selector.TimeSelector(),
+            vol.Required(CONF_FOOD_REMOVAL_DELAY): _positive_integer_selector(),
+            vol.Required(CONF_FOOD_REMOVAL_DELAY_UNIT): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value=TIME_UNIT_MINUTES,
+                            label="Minutes",
+                        ),
+                        selector.SelectOptionDict(
+                            value=TIME_UNIT_HOURS,
+                            label="Hours",
+                        ),
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
         }
     )
 
@@ -216,7 +234,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_SPOT_CLEAN_INTERVAL_DAYS,
                     CONF_FULL_CLEAN_INTERVAL_DAYS,
                     CONF_FULL_CLEAN_EVERY,
-                    CONF_REMOVE_FOOD_AFTER_HOURS,
+                    CONF_FOOD_REMOVAL_DELAY,
                 ):
                     value = _as_positive_int(user_input[key])
                     if value is None:
@@ -257,6 +275,12 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_FULL_CLEAN_INSTRUCTIONS: clean_instruction(
                         user_input.get(CONF_FULL_CLEAN_INSTRUCTIONS)
                     ),
+                    CONF_FOOD_REMOVAL_ANCHOR_TIME: user_input[
+                        CONF_FOOD_REMOVAL_ANCHOR_TIME
+                    ],
+                    CONF_FOOD_REMOVAL_DELAY_UNIT: user_input[
+                        CONF_FOOD_REMOVAL_DELAY_UNIT
+                    ],
                     **intervals,
                 }
                 self.hass.config_entries.async_update_entry(
@@ -289,7 +313,11 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             CONF_FEEDING_INSTRUCTIONS: instructions.feeding,
             CONF_SPOT_CLEAN_INSTRUCTIONS: instructions.spot_clean,
             CONF_FULL_CLEAN_INSTRUCTIONS: instructions.full_clean,
-            CONF_REMOVE_FOOD_AFTER_HOURS: food_removal.remove_after_hours,
+            CONF_FOOD_REMOVAL_ANCHOR_TIME: (
+                food_removal.anchor_time.isoformat()
+            ),
+            CONF_FOOD_REMOVAL_DELAY: food_removal.delay_value,
+            CONF_FOOD_REMOVAL_DELAY_UNIT: food_removal.delay_unit,
         }
         return self.async_show_form(
             step_id="init",

@@ -49,7 +49,9 @@
           "feeding_instructions": "Feeding instructions",
           "spot_clean_instructions": "Spot clean instructions",
           "full_clean_instructions": "Full clean instructions",
-          "food_removal_delay_hours": "Remove food after (hours)"
+          "food_removal_anchor_time": "Food removal anchor time",
+          "food_removal_delay": "Food removal delay",
+          "food_removal_delay_unit": "Food removal delay unit"
         },
         "data_description": {
           "birth_date": "Optional",
@@ -66,7 +68,9 @@
           "feeding_instructions": "Optional reference instructions shown for this care task.",
           "spot_clean_instructions": "Optional reference instructions shown for this care task.",
           "full_clean_instructions": "Optional reference instructions shown for this care task.",
-          "food_removal_delay_hours": "Hours after an actual feeding when food should be removed"
+          "food_removal_anchor_time": "Daily care time used to anchor the food-removal due calculation",
+          "food_removal_delay": "Time after the daily anchor when food should be removed",
+          "food_removal_delay_unit": "Choose Minutes or Hours"
         }
       }
     },

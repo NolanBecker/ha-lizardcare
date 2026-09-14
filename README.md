@@ -134,12 +134,30 @@ recreated.
 1. Find **Lizard Care — Food Removal Reminder** and select **Create
    automation**.
 2. Choose the pet's Food Removal Status sensor and a notify target.
-3. Set the repeat interval and optionally customize the title, message, or pet
-   name.
-4. Save the automation.
+3. Set **Reminder time / schedule anchor** to the same local time as the pet's
+   **Food removal anchor time** integration option.
+4. Choose the daily overdue-reminder End Time and a repeat value/unit, such as
+   **1 Hour** or **30 Minutes**, then optionally customize the title, message,
+   or pet name.
+5. Save the automation.
 
-When the integration reports `not_needed` or `pending`, the blueprint does not
-send and any active repeat loop stops.
+Food Removal Status remains the scheduling source of truth. Its `due_at` is the
+feeding day's Food removal anchor time plus the configured Food removal delay,
+not the exact feeding timestamp. For example, a 4:00 PM anchor plus 24 Hours is
+due at 4:00 PM the next day even when Feed was recorded at 4:37 PM. Configure
+the anchor and delay value/unit under the pet's Lizard Care options.
+
+The blueprint sends immediately when the status first becomes `due` or
+`overdue`, even outside the daily recurring window. Later reminders follow the
+`due_at`-anchored cadence only inside the inclusive Reminder Time–End Time
+window. Overnight windows are supported. Startup recovery respects the window,
+and `not_needed` or `pending` naturally stops all reminders without a
+long-running repeat loop.
+
+After updating the Food Removal Reminder blueprint, edit and save the existing
+automation once to configure the new Reminder Time, End Time, and repeat
+value/unit inputs. The removed hours-only `repeat_interval` input is ignored;
+the automation does not need to be recreated.
 
 ## Development and testing
 

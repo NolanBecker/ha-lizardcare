@@ -672,7 +672,8 @@ class LizardCareFoodRemovalStatusSensor(LizardCareEntity, SensorEntity):
         return calculate_food_removal_status(
             food_in_enclosure=self._data.food_in_enclosure,
             last_fed=self._data.last_fed,
-            remove_after_hours=settings.remove_after_hours,
+            delay_minutes=settings.delay_minutes,
+            anchor_time=settings.anchor_time,
         )
 
 
@@ -778,7 +779,8 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         status = calculate_food_removal_status(
             food_in_enclosure=self._data.food_in_enclosure,
             last_fed=self._data.last_fed,
-            remove_after_hours=settings.remove_after_hours,
+            delay_minutes=settings.delay_minutes,
+            anchor_time=settings.anchor_time,
         ).status
         return {
             FoodRemovalStatus.NOT_NEEDED: CareStatus.NOT_DUE,

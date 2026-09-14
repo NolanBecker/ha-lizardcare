@@ -45,6 +45,14 @@ CLEANING_SCHEDULE_MONTHLY = "monthly"
 # forward. It is now care timing, independent of notifications.
 CONF_REMOVE_FOOD_AFTER_HOURS = "food_removal_delay_hours"
 DEFAULT_REMOVE_FOOD_AFTER_HOURS = 12
+CONF_FOOD_REMOVAL_ANCHOR_TIME = "food_removal_anchor_time"
+CONF_FOOD_REMOVAL_DELAY = "food_removal_delay"
+CONF_FOOD_REMOVAL_DELAY_UNIT = "food_removal_delay_unit"
+DEFAULT_FOOD_REMOVAL_ANCHOR_TIME = "19:00:00"
+DEFAULT_FOOD_REMOVAL_DELAY = 12
+DEFAULT_FOOD_REMOVAL_DELAY_UNIT = "hours"
+TIME_UNIT_MINUTES = "minutes"
+TIME_UNIT_HOURS = "hours"
 FOOD_REMOVAL_OVERDUE_AFTER_MINUTES = 60
 
 STORAGE_VERSION = 1
