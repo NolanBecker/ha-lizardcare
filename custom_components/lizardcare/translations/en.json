@@ -30,57 +30,136 @@
   "options": {
     "step": {
       "init": {
-        "title": "Edit pet details",
-        "description": "Update this pet's profile and care settings.",
+        "title": "Configure pet",
+        "description": "Choose the settings you want to update.",
+        "menu_options": {
+          "feeding": "Feeding",
+          "cleaning": "Cleaning",
+          "food_removal": "Food Removal",
+          "instructions": "Care Instructions",
+          "vacation": "Vacation Mode",
+          "profile": "Profile"
+        }
+      },
+      "feeding": {
+        "title": "Feeding",
+        "description": "Configure the feeding schedule.",
+        "data": {
+          "feeding_interval_days": "Feeding interval in days"
+        },
+        "data_description": {
+          "feeding_interval_days": "Number of days between feedings"
+        }
+      },
+      "cleaning": {
+        "title": "Cleaning",
+        "description": "Choose how cleaning is scheduled.",
+        "data": {
+          "cleaning_schedule_mode": "Cleaning schedule"
+        },
+        "data_description": {
+          "cleaning_schedule_mode": "Use separate schedules, a monthly cycle, or one alternating schedule."
+        }
+      },
+      "cleaning_independent": {
+        "title": "Independent Cleaning",
+        "description": "Configure separate Full Clean and Spot Clean schedules.",
+        "data": {
+          "full_clean_interval_days": "Full Clean interval in days",
+          "full_clean_satisfies_spot_clean": "Full Clean satisfies Spot Clean",
+          "spot_clean_enabled": "Spot Clean enabled"
+        },
+        "data_description": {
+          "full_clean_interval_days": "Number of days between full enclosure cleans.",
+          "full_clean_satisfies_spot_clean": "Completing a Full Clean also resets the Spot Clean schedule.",
+          "spot_clean_enabled": "Disable Spot Clean scheduling while preserving its history and saved interval."
+        }
+      },
+      "cleaning_spot": {
+        "title": "Spot Clean Schedule",
+        "description": "Configure the enabled Spot Clean schedule.",
+        "data": {
+          "spot_clean_interval_days": "Spot Clean interval in days"
+        },
+        "data_description": {
+          "spot_clean_interval_days": "Number of days between spot cleans."
+        }
+      },
+      "cleaning_monthly": {
+        "title": "Monthly Cleaning",
+        "description": "Configure the fixed monthly cleaning cycle.",
+        "data": {
+          "cleaning_day_of_month": "Cleaning day of month",
+          "full_clean_every": "Full Clean every",
+          "cleaning_cycle_anchor": "Full Clean cycle anchor"
+        },
+        "data_description": {
+          "cleaning_day_of_month": "If this day does not exist, the month's final day is used.",
+          "full_clean_every": "Make every Nth scheduled cleaning a Full Clean.",
+          "cleaning_cycle_anchor": "This date's month is occurrence 1; the configured cleaning day is used."
+        }
+      },
+      "cleaning_alternating": {
+        "title": "Alternating Cleaning",
+        "description": "Configure the fixed alternating cleaning cadence.",
+        "data": {
+          "alternating_cleaning_interval_days": "Interval in days",
+          "alternating_cleaning_anchor_date": "Anchor date",
+          "alternating_cleaning_anchor_type": "Anchor cleaning type"
+        },
+        "data_description": {
+          "alternating_cleaning_interval_days": "Exact number of calendar days between cleaning slots.",
+          "alternating_cleaning_anchor_date": "Fixed date of the first cleaning slot.",
+          "alternating_cleaning_anchor_type": "Cleaning type assigned to the anchor date."
+        }
+      },
+      "food_removal": {
+        "title": "Food Removal",
+        "description": "Configure when food should be removed after feeding.",
+        "data": {
+          "food_removal_anchor_time": "Food Removal anchor time",
+          "food_removal_delay": "Food Removal delay",
+          "food_removal_delay_unit": "Delay unit"
+        },
+        "data_description": {
+          "food_removal_anchor_time": "Daily care time used to anchor the due calculation.",
+          "food_removal_delay": "Time after the daily anchor when food should be removed.",
+          "food_removal_delay_unit": "Choose Minutes or Hours."
+        }
+      },
+      "instructions": {
+        "title": "Care Instructions",
+        "description": "Add optional reference instructions for each care task.",
+        "data": {
+          "feeding_instructions": "Feeding instructions",
+          "spot_clean_instructions": "Spot Clean instructions",
+          "full_clean_instructions": "Full Clean instructions"
+        }
+      },
+      "vacation": {
+        "title": "Vacation Mode",
+        "description": "Configure the calendar used to suppress reminders during vacations.",
+        "data": {
+          "vacation_calendar": "Vacation calendar"
+        },
+        "data_description": {
+          "vacation_calendar": "Reminder automations must also be configured with this calendar."
+        }
+      },
+      "profile": {
+        "title": "Profile",
+        "description": "Update this pet's profile details.",
         "data": {
           "pet_name": "Pet name",
           "species": "Species",
           "birth_date": "Birthday / hatch date",
           "sex": "Sex",
-          "notes": "Notes",
-          "feeding_interval_days": "Feeding interval in days",
-          "spot_clean_enabled": "Spot Clean enabled",
-          "spot_clean_interval_days": "Spot-clean interval in days",
-          "full_clean_interval_days": "Full-clean interval in days",
-          "full_clean_satisfies_spot_clean": "Full clean satisfies spot clean",
-          "cleaning_schedule_mode": "Cleaning schedule",
-          "cleaning_day_of_month": "Cleaning day of month",
-          "full_clean_every": "Full clean every",
-          "cleaning_cycle_anchor": "Full-clean cycle anchor",
-          "alternating_cleaning_interval_days": "Alternating cleaning interval in days",
-          "alternating_cleaning_anchor_date": "Alternating schedule anchor date",
-          "alternating_cleaning_anchor_type": "Anchor cleaning type",
-          "feeding_instructions": "Feeding instructions",
-          "spot_clean_instructions": "Spot clean instructions",
-          "full_clean_instructions": "Full clean instructions",
-          "vacation_calendar": "Vacation calendar",
-          "food_removal_anchor_time": "Food removal anchor time",
-          "food_removal_delay": "Food removal delay",
-          "food_removal_delay_unit": "Food removal delay unit"
+          "notes": "Notes"
         },
         "data_description": {
           "birth_date": "Optional",
           "sex": "Optional",
-          "notes": "Optional profile notes",
-          "feeding_interval_days": "Number of days between feedings",
-          "spot_clean_enabled": "Disable to remove Spot Clean from scheduling and overall care status while preserving its history and settings.",
-          "spot_clean_interval_days": "Interval mode only. Number of days between spot cleans.",
-          "full_clean_interval_days": "Interval mode only. Number of days between full enclosure cleans.",
-          "full_clean_satisfies_spot_clean": "When enabled, completing a full clean also resets the spot-clean schedule.",
-          "cleaning_schedule_mode": "Choose independent Spot/Full schedules, a fixed monthly cycle, or one fixed alternating schedule.",
-          "cleaning_day_of_month": "Monthly mode only. If this day does not exist, the month's final day is used.",
-          "full_clean_every": "Monthly mode only. Make every Nth scheduled cleaning a full clean.",
-          "cleaning_cycle_anchor": "Monthly mode only. This date's month is occurrence 1; the configured cleaning day is used.",
-          "alternating_cleaning_interval_days": "Alternating mode only. Exact number of calendar days between cleaning slots.",
-          "alternating_cleaning_anchor_date": "Alternating mode only. Fixed date of the first cleaning slot.",
-          "alternating_cleaning_anchor_type": "Alternating mode only. Cleaning type assigned to the anchor date.",
-          "feeding_instructions": "Optional reference instructions shown for this care task.",
-          "spot_clean_instructions": "Optional reference instructions shown for this care task.",
-          "full_clean_instructions": "Optional reference instructions shown for this care task.",
-          "vacation_calendar": "Select the calendar used to track vacations. Reminder automations must also be configured with the same calendar.",
-          "food_removal_anchor_time": "Daily care time used to anchor the food-removal due calculation",
-          "food_removal_delay": "Time after the daily anchor when food should be removed",
-          "food_removal_delay_unit": "Choose Minutes or Hours"
+          "notes": "Optional profile notes"
         }
       }
     },

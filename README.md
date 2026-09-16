@@ -46,6 +46,15 @@ The sensor includes `food_in_enclosure`, `fed_at`, `due_at`,
 or correcting care timestamps updates the derived state through the existing
 care-state architecture.
 
+## Pet configuration
+
+Choose **Configure** on a Lizard Care pet to open a feature-oriented menu for
+Feeding, Cleaning, Food Removal, Care Instructions, Vacation Mode, and Profile.
+Cleaning first asks for Independent, Monthly, or Alternating scheduling and
+then shows only the fields used by that mode. In Independent mode, Spot Clean
+timing appears only when Spot Clean is enabled. Saving one page preserves all
+settings from the other pages.
+
 ## Cleaning schedules
 
 Cleaning supports three scheduling modes:
