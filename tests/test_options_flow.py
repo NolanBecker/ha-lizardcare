@@ -51,16 +51,27 @@ class FakeConfigEntries:
     def __init__(self, entry: SimpleNamespace) -> None:
         self.entry = entry
         self.title_updates: list[str] = []
+        self.reloads: list[str] = []
 
     def async_entries(self, _domain: str) -> list[SimpleNamespace]:
         """Return the configured pet entry."""
         return [self.entry]
 
-    def async_update_entry(self, entry: SimpleNamespace, **changes: str) -> None:
-        """Record entry-title updates."""
-        if title := changes.get("title"):
+    def async_update_entry(self, entry: SimpleNamespace, **changes: object) -> bool:
+        """Apply config-entry changes and report whether anything changed."""
+        changed = False
+        if (title := changes.get("title")) and entry.title != title:
             entry.title = title
             self.title_updates.append(title)
+            changed = True
+        if "options" in changes and entry.options != changes["options"]:
+            entry.options = dict(changes["options"])
+            changed = True
+        return changed
+
+    def async_schedule_reload(self, entry_id: str) -> None:
+        """Record a standard Home Assistant reload request."""
+        self.reloads.append(entry_id)
 
 
 def _flow(
@@ -108,6 +119,7 @@ def test_top_level_options_menu_is_feature_oriented() -> None:
         "instructions",
         "vacation",
         "profile",
+        "finish",
     ]
 
 
@@ -164,10 +176,10 @@ def test_disabled_spot_clean_hides_interval_and_preserves_it() -> None:
         )
     )
 
-    assert result["type"] == "create_entry"
-    assert result["data"][CONF_SPOT_CLEAN_ENABLED] is False
-    assert result["data"][CONF_SPOT_CLEAN_INTERVAL_DAYS] == 9
-    assert result["data"]["unrelated"] == "keep"
+    assert result["type"] == "menu"
+    assert _entry.options[CONF_SPOT_CLEAN_ENABLED] is False
+    assert _entry.options[CONF_SPOT_CLEAN_INTERVAL_DAYS] == 9
+    assert _entry.options["unrelated"] == "keep"
 
 
 def test_enabled_spot_clean_opens_interval_step() -> None:
@@ -191,8 +203,9 @@ def test_enabled_spot_clean_opens_interval_step() -> None:
             {CONF_SPOT_CLEAN_INTERVAL_DAYS: 6}
         )
     )
-    assert saved["data"][CONF_CLEANING_SCHEDULE_MODE] == "interval"
-    assert saved["data"][CONF_SPOT_CLEAN_INTERVAL_DAYS] == 6
+    assert saved["type"] == "menu"
+    assert _entry.options[CONF_CLEANING_SCHEDULE_MODE] == "interval"
+    assert _entry.options[CONF_SPOT_CLEAN_INTERVAL_DAYS] == 6
 
 
 def test_feature_pages_expose_only_their_current_fields() -> None:
@@ -240,11 +253,15 @@ def test_section_save_merges_existing_options_and_data_defaults() -> None:
         flow.async_step_feeding({CONF_FEEDING_INTERVAL_DAYS: 3})
     )
 
-    assert saved["data"][CONF_FEEDING_INTERVAL_DAYS] == 3
-    assert saved["data"][CONF_ALTERNATING_CLEANING_INTERVAL_DAYS] == 45
-    assert saved["data"][CONF_ALTERNATING_CLEANING_ANCHOR_DATE] == "2026-09-01"
-    assert saved["data"][CONF_ALTERNATING_ANCHOR_TYPE] == "spot_clean"
-    assert saved["data"]["legacy_option"] == "preserved"
+    assert saved["type"] == "menu"
+    assert _entry.options[CONF_FEEDING_INTERVAL_DAYS] == 3
+    assert _entry.options[CONF_ALTERNATING_CLEANING_INTERVAL_DAYS] == 45
+    assert _entry.options[CONF_ALTERNATING_CLEANING_ANCHOR_DATE] == "2026-09-01"
+    assert _entry.options[CONF_ALTERNATING_ANCHOR_TYPE] == "spot_clean"
+    assert _entry.options["legacy_option"] == "preserved"
+
+    reopened = asyncio.run(flow.async_step_feeding())
+    assert _suggested_value(reopened, CONF_FEEDING_INTERVAL_DAYS) == 3
 
 
 def test_existing_entry_data_populates_forms_without_option_migration() -> None:
@@ -276,7 +293,9 @@ def test_alternating_save_changes_only_the_effective_definition_fields() -> None
             }
         )
     )
-    assert unchanged["data"] == original_options
+    assert unchanged["type"] == "menu"
+    assert _entry.options == original_options
+    assert flow.hass.config_entries.reloads == []
 
     changed = asyncio.run(
         flow.async_step_cleaning_alternating(
@@ -287,10 +306,12 @@ def test_alternating_save_changes_only_the_effective_definition_fields() -> None
             }
         )
     )
-    assert changed["data"][CONF_ALTERNATING_CLEANING_INTERVAL_DAYS] == 30
-    assert changed["data"][CONF_ALTERNATING_CLEANING_ANCHOR_DATE] == "2026-10-01"
-    assert changed["data"][CONF_ALTERNATING_ANCHOR_TYPE] == "full_clean"
-    assert changed["data"][CONF_FEEDING_INTERVAL_DAYS] == 3
+    assert changed["type"] == "menu"
+    assert _entry.options[CONF_ALTERNATING_CLEANING_INTERVAL_DAYS] == 30
+    assert _entry.options[CONF_ALTERNATING_CLEANING_ANCHOR_DATE] == "2026-10-01"
+    assert _entry.options[CONF_ALTERNATING_ANCHOR_TYPE] == "full_clean"
+    assert _entry.options[CONF_FEEDING_INTERVAL_DAYS] == 3
+    assert flow.hass.config_entries.reloads == ["pet-one"]
 
 
 def test_profile_save_updates_title_without_resetting_schedule() -> None:
@@ -310,8 +331,122 @@ def test_profile_save_updates_title_without_resetting_schedule() -> None:
     )
 
     assert entry.title == "Pixel Two"
-    assert result["data"][CONF_FEEDING_INTERVAL_DAYS] == 4
-    assert result["data"][CONF_PET_NAME] == "Pixel Two"
+    assert result["type"] == "menu"
+    assert entry.options[CONF_FEEDING_INTERVAL_DAYS] == 4
+    assert entry.options[CONF_PET_NAME] == "Pixel Two"
+
+
+def test_multiple_sections_save_in_one_flow_and_finish_explicitly() -> None:
+    """Section saves persist independently until Finish closes the flow."""
+    flow, entry = _flow(options={"unrelated": "keep"})
+
+    feeding = asyncio.run(
+        flow.async_step_feeding({CONF_FEEDING_INTERVAL_DAYS: 3})
+    )
+    vacation = asyncio.run(
+        flow.async_step_vacation({CONF_VACATION_CALENDAR: "calendar.travel"})
+    )
+
+    assert feeding["type"] == "menu"
+    assert vacation["type"] == "menu"
+    assert entry.options == {
+        "unrelated": "keep",
+        CONF_FEEDING_INTERVAL_DAYS: 3,
+        CONF_VACATION_CALENDAR: "calendar.travel",
+    }
+    assert flow.hass.config_entries.reloads == ["pet-one", "pet-one"]
+
+    finished = asyncio.run(flow.async_step_finish())
+    assert finished["type"] == "create_entry"
+    assert finished["data"] == entry.options
+
+
+def test_each_top_level_section_returns_to_menu_after_save() -> None:
+    """All non-nested feature sections remain in the same options flow."""
+    cases = [
+        (
+            "feeding",
+            {CONF_FEEDING_INTERVAL_DAYS: 4},
+        ),
+        (
+            "food_removal",
+            {
+                CONF_FOOD_REMOVAL_ANCHOR_TIME: "17:00:00",
+                CONF_FOOD_REMOVAL_DELAY: 2,
+                CONF_FOOD_REMOVAL_DELAY_UNIT: "hours",
+            },
+        ),
+        (
+            "instructions",
+            {
+                CONF_FEEDING_INSTRUCTIONS: "Feed insects",
+                CONF_SPOT_CLEAN_INSTRUCTIONS: "Remove waste",
+                CONF_FULL_CLEAN_INSTRUCTIONS: "Replace substrate",
+            },
+        ),
+        (
+            "vacation",
+            {CONF_VACATION_CALENDAR: "calendar.travel"},
+        ),
+        (
+            "profile",
+            {
+                CONF_PET_NAME: "Pixel",
+                CONF_SPECIES: "Gargoyle Gecko",
+                CONF_BIRTH_DATE: "2024-01-02",
+                CONF_SEX: "Female",
+                CONF_NOTES: "Calm",
+            },
+        ),
+    ]
+
+    for step, user_input in cases:
+        flow, entry = _flow()
+        result = asyncio.run(getattr(flow, f"async_step_{step}")(user_input))
+        assert result["type"] == "menu"
+        assert entry.options
+        assert flow.hass.config_entries.reloads == ["pet-one"]
+
+
+def test_all_cleaning_paths_return_to_menu_after_final_save() -> None:
+    """Independent, Monthly, and Alternating saves all return to the menu."""
+    cases = [
+        (
+            "async_step_cleaning_independent",
+            {
+                CONF_FULL_CLEAN_INTERVAL_DAYS: 30,
+                CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN: True,
+                CONF_SPOT_CLEAN_ENABLED: False,
+            },
+        ),
+        (
+            "async_step_cleaning_monthly",
+            {
+                CONF_CLEANING_DAY_OF_MONTH: 10,
+                CONF_FULL_CLEAN_EVERY: 2,
+                CONF_CLEANING_CYCLE_ANCHOR: "2026-09-01",
+            },
+        ),
+        (
+            "async_step_cleaning_alternating",
+            {
+                CONF_ALTERNATING_CLEANING_INTERVAL_DAYS: 14,
+                CONF_ALTERNATING_CLEANING_ANCHOR_DATE: "2026-09-01",
+                CONF_ALTERNATING_ANCHOR_TYPE: "spot_clean",
+            },
+        ),
+    ]
+
+    for method, user_input in cases:
+        flow, entry = _flow()
+        result = asyncio.run(getattr(flow, method)(user_input))
+        assert result["type"] == "menu"
+        assert entry.options[CONF_CLEANING_SCHEDULE_MODE] in {
+            CLEANING_SCHEDULE_INTERVAL,
+            CLEANING_SCHEDULE_MONTHLY,
+            CLEANING_SCHEDULE_ALTERNATING,
+        }
+        assert flow.hass.config_entries.reloads == ["pet-one"]
 
 
 def test_standard_reload_helper_and_incremental_save_are_retained() -> None:
@@ -322,5 +457,6 @@ def test_standard_reload_helper_and_incremental_save_are_retained() -> None:
     ).read_text()
 
     assert "class LizardCareOptionsFlow(OptionsFlowWithReload):" in source
-    assert "data={**self.config_entry.options, **updates}" in source
+    assert "async_update_entry(" in source
+    assert "async_schedule_reload(" in source
     assert "entry.add_update_listener" not in source

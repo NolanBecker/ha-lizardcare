@@ -38,7 +38,8 @@
           "food_removal": "Food Removal",
           "instructions": "Care Instructions",
           "vacation": "Vacation Mode",
-          "profile": "Profile"
+          "profile": "Profile",
+          "finish": "Finish"
         }
       },
       "feeding": {

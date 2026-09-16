@@ -309,8 +309,15 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                 "instructions",
                 "vacation",
                 "profile",
+                "finish",
             ],
         )
+
+    async def async_step_finish(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Finish configuring the pet."""
+        return self.async_create_entry(data=dict(self.config_entry.options))
 
     async def async_step_feeding(
         self, user_input: dict[str, Any] | None = None
@@ -322,7 +329,9 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             if interval is None:
                 errors[CONF_FEEDING_INTERVAL_DAYS] = "invalid_interval"
             else:
-                return self._async_save_options({CONF_FEEDING_INTERVAL_DAYS: interval})
+                return await self._async_save_options(
+                    {CONF_FEEDING_INTERVAL_DAYS: interval}
+                )
         schedule = get_care_schedule(self.config_entry)
         return self._async_show_section_form(
             "feeding",
@@ -375,7 +384,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                 if user_input[CONF_SPOT_CLEAN_ENABLED]:
                     self._independent_updates = updates
                     return await self.async_step_cleaning_spot()
-                return self._async_save_options(updates)
+                return await self._async_save_options(updates)
 
         schedule = get_care_schedule(self.config_entry)
         return self._async_show_section_form(
@@ -404,7 +413,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             else:
                 updates = dict(self._independent_updates or {})
                 updates[CONF_SPOT_CLEAN_INTERVAL_DAYS] = interval
-                return self._async_save_options(updates)
+                return await self._async_save_options(updates)
 
         schedule = get_care_schedule(self.config_entry)
         return self._async_show_section_form(
@@ -428,7 +437,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             if full_clean_every is None:
                 errors[CONF_FULL_CLEAN_EVERY] = "invalid_interval"
             if not errors:
-                return self._async_save_options(
+                return await self._async_save_options(
                     {
                         CONF_CLEANING_SCHEDULE_MODE: (CLEANING_SCHEDULE_MONTHLY),
                         CONF_CLEANING_DAY_OF_MONTH: cleaning_day,
@@ -466,7 +475,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             if interval is None:
                 errors[CONF_ALTERNATING_CLEANING_INTERVAL_DAYS] = "invalid_interval"
             else:
-                return self._async_save_options(
+                return await self._async_save_options(
                     {
                         CONF_CLEANING_SCHEDULE_MODE: (CLEANING_SCHEDULE_ALTERNATING),
                         CONF_ALTERNATING_CLEANING_INTERVAL_DAYS: interval,
@@ -506,7 +515,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             if delay is None:
                 errors[CONF_FOOD_REMOVAL_DELAY] = "invalid_interval"
             else:
-                return self._async_save_options(
+                return await self._async_save_options(
                     {
                         CONF_FOOD_REMOVAL_ANCHOR_TIME: user_input[
                             CONF_FOOD_REMOVAL_ANCHOR_TIME
@@ -536,7 +545,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Edit optional care instructions."""
         if user_input is not None:
-            return self._async_save_options(
+            return await self._async_save_options(
                 {
                     CONF_FEEDING_INSTRUCTIONS: clean_instruction(
                         user_input.get(CONF_FEEDING_INSTRUCTIONS)
@@ -567,7 +576,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Edit the Vacation Mode calendar."""
         if user_input is not None:
-            return self._async_save_options(
+            return await self._async_save_options(
                 {CONF_VACATION_CALENDAR: user_input.get(CONF_VACATION_CALENDAR)}
             )
 
@@ -598,7 +607,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                 self.hass.config_entries.async_update_entry(
                     self.config_entry, title=pet_name
                 )
-                return self._async_save_options(
+                return await self._async_save_options(
                     {
                         CONF_PET_NAME: pet_name,
                         CONF_SPECIES: user_input[CONF_SPECIES].strip(),
@@ -641,7 +650,15 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             errors=errors,
         )
 
-    @callback
-    def _async_save_options(self, updates: dict[str, Any]) -> ConfigFlowResult:
-        """Merge one section without resetting unrelated option values."""
-        return self.async_create_entry(data={**self.config_entry.options, **updates})
+    async def _async_save_options(
+        self, updates: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Persist one section, schedule a reload, and return to the menu."""
+        options = {**self.config_entry.options, **updates}
+        if self.hass.config_entries.async_update_entry(
+            self.config_entry, options=options
+        ):
+            self.hass.config_entries.async_schedule_reload(
+                self.config_entry.entry_id
+            )
+        return await self.async_step_init()
