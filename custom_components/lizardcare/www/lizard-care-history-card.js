@@ -21,6 +21,7 @@ class LizardCareHistoryCard extends HTMLElement {
     this._config = {
       title: "Recent Activity",
       limit: 5,
+      show_add: true,
       show_view_all: true,
       view_all_hash: "#pixel-history",
       ...config,
@@ -28,6 +29,9 @@ class LizardCareHistoryCard extends HTMLElement {
     this._entries = [];
     this._loading = true;
     this._error = null;
+    this._dialogOpen = false;
+    this._submitting = false;
+    this._formError = null;
     this._render();
   }
 
@@ -136,6 +140,115 @@ class LizardCareHistoryCard extends HTMLElement {
     return this._hass?.locale?.language || navigator.language;
   }
 
+  _localDateTime(date = new Date()) {
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  }
+
+  _openAddDialog() {
+    this._dialogOpen = true;
+    this._formError = null;
+    this._formValues = {
+      eventType: "note",
+      note: "",
+      timestamp: this._localDateTime(),
+      weightValue: "",
+      weightUnit: "g",
+    };
+    this._render();
+    this.shadowRoot.getElementById("event-type")?.focus();
+  }
+
+  _closeAddDialog() {
+    if (this._submitting) return;
+    this._dialogOpen = false;
+    this._formError = null;
+    this._render();
+  }
+
+  _toggleWeightFields() {
+    const eventType = this.shadowRoot.getElementById("event-type")?.value;
+    const isWeight = eventType === "weight";
+    this.shadowRoot.getElementById("weight-fields")?.toggleAttribute("hidden", !isWeight);
+    const icon = this.shadowRoot.getElementById("event-icon");
+    if (icon) icon.icon = EVENT_DETAILS[eventType]?.[1] || EVENT_DETAILS.other[1];
+  }
+
+  async _submitEntry(event) {
+    event.preventDefault();
+    if (this._submitting) return;
+    const form = new FormData(event.currentTarget);
+    const eventType = form.get("event_type");
+    const timestamp = form.get("timestamp");
+    this._formValues = {
+      eventType,
+      note: String(form.get("note") || ""),
+      timestamp: String(timestamp || ""),
+      weightValue: String(form.get("weight_value") || ""),
+      weightUnit: String(form.get("weight_unit") || "g"),
+    };
+    const message = {
+      type: "lizardcare/journal/create",
+      entity_id: this._config.entity,
+      event_type: eventType,
+    };
+    const note = String(form.get("note") || "").trim();
+    if (note) message.note = note;
+    if (timestamp) message.timestamp = new Date(timestamp).toISOString();
+    if (eventType === "weight") {
+      const value = Number(form.get("weight_value"));
+      if (!Number.isFinite(value) || value <= 0) {
+        this._formError = "Weight must be a number greater than zero.";
+        this._render();
+        return;
+      }
+      message.weight_value = value;
+      message.weight_unit = form.get("weight_unit");
+    }
+    this._submitting = true;
+    this._formError = null;
+    this._render();
+    try {
+      await this._hass.callWS(message);
+      this._dialogOpen = false;
+      await this._loadEntries();
+    } catch (error) {
+      this._formError = error?.message || "Unable to save this journal entry.";
+    } finally {
+      this._submitting = false;
+      this._render();
+    }
+  }
+
+  _addDialog() {
+    if (!this._dialogOpen) return "";
+    const values = this._formValues;
+    const options = Object.entries(EVENT_DETAILS).map(([value, [label]]) =>
+      `<option value="${value}" ${value === values.eventType ? "selected" : ""}>${this._escape(label)}</option>`
+    ).join("");
+    const weight = values.eventType === "weight";
+    return `<div class="scrim" id="dialog-scrim">
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <h3 id="dialog-title">Add Journal Entry</h3>
+        <form id="entry-form">
+          <label>Event Type<div class="select-with-icon"><ha-icon id="event-icon" icon="${EVENT_DETAILS[values.eventType]?.[1] || EVENT_DETAILS.other[1]}"></ha-icon><select id="event-type" name="event_type" required>${options}</select></div></label>
+          <label>Note<textarea name="note" maxlength="2000" rows="3" placeholder="Optional details">${this._escape(values.note)}</textarea></label>
+          <label>Date/Time<input name="timestamp" type="datetime-local" value="${this._escape(values.timestamp)}" required></label>
+          <div id="weight-fields" ${weight ? "" : "hidden"}>
+            <label>Weight Value<input name="weight_value" type="number" min="0.01" step="any" inputmode="decimal" value="${this._escape(values.weightValue)}" ${weight ? "required" : ""}></label>
+            <label>Weight Unit<select name="weight_unit"><option value="g" ${values.weightUnit === "g" ? "selected" : ""}>g</option><option value="oz" ${values.weightUnit === "oz" ? "selected" : ""}>oz</option></select></label>
+          </div>
+          <p class="helper">Journal entries do not change care schedules or completion status.</p>
+          ${this._formError ? `<p class="form-error" role="alert">${this._escape(this._formError)}</p>` : ""}
+          <div class="dialog-actions">
+            <button id="cancel-entry" type="button" ${this._submitting ? "disabled" : ""}>Cancel</button>
+            <button class="save" type="submit" ${this._submitting ? "disabled" : ""}>${this._submitting ? "Saving…" : "Save Entry"}</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+  }
+
   _escape(value) {
     const element = document.createElement("span");
     element.textContent = String(value ?? "");
@@ -195,13 +308,19 @@ class LizardCareHistoryCard extends HTMLElement {
     const viewAll = this._config.show_view_all
       ? `<button id="view-all" type="button">View All</button>`
       : "";
+    const add = this._config.show_add
+      ? `<button id="add-entry" class="icon-button" type="button" aria-label="Add journal entry"><ha-icon icon="mdi:plus"></ha-icon></button>`
+      : "";
     this.shadowRoot.innerHTML = `
       <style>
         ha-card { padding: 16px; border-radius: var(--md-sys-shape-corner-extra-large, 24px); background: var(--md-sys-color-surface-container, var(--ha-card-background)); color: var(--primary-text-color); overflow: hidden; }
-        header { display:flex; align-items:center; justify-content:space-between; min-height:32px; margin-bottom:8px; }
+        header { display:flex; align-items:center; justify-content:space-between; min-height:40px; margin-bottom:8px; }
+        .header-actions { display:flex; align-items:center; gap:2px; }
         h2 { margin:0; font-size:18px; line-height:24px; font-weight:600; }
         button { border:0; background:transparent; color:var(--primary-color); font:inherit; font-weight:600; min-height:40px; padding:0 8px; cursor:pointer; border-radius:20px; }
         button:focus-visible, button:hover { background:color-mix(in srgb, var(--primary-color) 10%, transparent); }
+        button:disabled { opacity:.55; cursor:default; }
+        .icon-button { width:40px; padding:0; display:grid; place-items:center; }
         section + section { margin-top:14px; }
         .date-heading { color:var(--secondary-text-color); font-size:12px; font-weight:600; letter-spacing:.04em; margin:0 0 4px 44px; }
         .entry { display:flex; gap:12px; padding:8px 0; min-width:0; }
@@ -216,15 +335,38 @@ class LizardCareHistoryCard extends HTMLElement {
         .state { min-height:112px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--secondary-text-color); text-align:center; font-size:13px; }
         .state ha-icon { --mdc-icon-size:28px; }
         .error { color:var(--error-color); }
+        .scrim { position:fixed; inset:0; z-index:999; display:grid; place-items:center; padding:16px; background:rgba(0,0,0,.5); }
+        .dialog { box-sizing:border-box; width:min(440px, 100%); max-height:calc(100vh - 32px); overflow:auto; padding:24px; border-radius:28px; background:var(--md-sys-color-surface-container-high, var(--card-background-color, var(--ha-card-background))); color:var(--primary-text-color); box-shadow:var(--ha-card-box-shadow); }
+        h3 { margin:0 0 18px; font-size:22px; line-height:28px; }
+        form, label { display:flex; flex-direction:column; }
+        form { gap:16px; }
+        label { gap:6px; color:var(--secondary-text-color); font-size:13px; font-weight:500; }
+        input, select, textarea { box-sizing:border-box; width:100%; min-height:48px; padding:10px 12px; border:1px solid var(--divider-color); border-radius:12px; outline:none; background:var(--md-sys-color-surface-container, var(--secondary-background-color)); color:var(--primary-text-color); font:inherit; }
+        textarea { min-height:84px; resize:vertical; }
+        input:focus, select:focus, textarea:focus { border-color:var(--primary-color); box-shadow:0 0 0 1px var(--primary-color); }
+        .select-with-icon { position:relative; }
+        .select-with-icon ha-icon { position:absolute; left:12px; top:12px; z-index:1; color:var(--primary-color); --mdc-icon-size:22px; pointer-events:none; }
+        .select-with-icon select { padding-left:44px; }
+        #weight-fields { display:grid; grid-template-columns:2fr 1fr; gap:12px; }
+        #weight-fields[hidden] { display:none; }
+        .helper { margin:0; color:var(--secondary-text-color); font-size:12px; line-height:17px; }
+        .form-error { margin:0; color:var(--error-color); font-size:13px; }
+        .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:4px; }
+        .dialog-actions button { padding:0 16px; }
+        .dialog-actions .save { background:var(--primary-color); color:var(--text-primary-color, white); }
         @media (max-width: 400px) { ha-card { padding:14px; } .date-heading { margin-left:40px; } .entry { gap:8px; } }
       </style>
       <ha-card>
-        <header><h2>${this._escape(this._config.title)}</h2>${viewAll}</header>
+        <header><h2>${this._escape(this._config.title)}</h2><div class="header-actions">${add}${viewAll}</div></header>
         <div>${this._content()}</div>
-      </ha-card>`;
+      </ha-card>${this._addDialog()}`;
+    this.shadowRoot.getElementById("add-entry")?.addEventListener("click", () => this._openAddDialog());
     this.shadowRoot.getElementById("view-all")?.addEventListener("click", () => {
       window.location.hash = this._config.view_all_hash;
     });
+    this.shadowRoot.getElementById("cancel-entry")?.addEventListener("click", () => this._closeAddDialog());
+    this.shadowRoot.getElementById("event-type")?.addEventListener("change", () => this._toggleWeightFields());
+    this.shadowRoot.getElementById("entry-form")?.addEventListener("submit", (event) => this._submitEntry(event));
   }
 }
 

@@ -176,6 +176,15 @@ loading, empty, and retrieval-error states; groups timestamps using Home
 Assistant's configured timezone; uses localized times and friendly date
 headings; and displays notes or structured Weight values when available.
 
+Use the **+** button in either the Recent Activity or full Care History card to
+add a Note, Feeding, Food Removed, Spot Clean, Full Clean, Shed, Weight,
+Enclosure, Health, or Other journal entry. The mobile-friendly form accepts an
+optional note and local date/time. Weight entries additionally require a
+positive decimal value and `g` or `oz`; the structured value appears in history
+immediately. Manual care-type journal entries document history only: they do
+not update care timestamps, schedules, or completion status. Set `show_add:
+false` in the card configuration to hide this control; it defaults to `true`.
+
 ## Automation blueprints
 
 The repository includes:

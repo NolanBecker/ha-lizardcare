@@ -63,6 +63,22 @@ def test_websocket_contract_enforces_entity_permission_and_safe_errors() -> None
     assert "websocket_api.ERR_NOT_FOUND" in source
 
 
+def test_websocket_create_reuses_authorized_entity_and_runtime_contract() -> None:
+    """Manual writes resolve the pet entity and reuse journal validation."""
+    source = (
+        ROOT / "custom_components/lizardcare/websocket_api.py"
+    ).read_text()
+
+    assert 'WS_TYPE_CREATE_JOURNAL = f"{DOMAIN}/journal/create"' in source
+    assert source.count("permissions.check_entity(entity_id, POLICY_READ)") == 2
+    assert "_journal_runtime_for_entity(hass, entity_id)" in source
+    assert "normalize_manual_metadata(" in source
+    assert "runtime.async_add_journal_entry(" in source
+    assert 'vol.Length(max=2000)' in source
+    assert '"invalid_format"' in source
+    assert "websocket_create_journal" in source
+
+
 def test_card_retrieves_and_subscribes_without_polling() -> None:
     """The card loads over WebSocket and refreshes from journal events."""
     source = CARD_PATH.read_text()
@@ -110,3 +126,20 @@ def test_card_supports_recent_and_full_history_configuration() -> None:
     assert 'view_all_hash: "#pixel-history"' in source
     assert 'window.location.hash = this._config.view_all_hash' in source
     assert 'customElements.define("lizard-care-history-card"' in source
+
+
+def test_card_add_entry_form_and_submission_contract() -> None:
+    """The shared card offers a guarded mobile journal-entry workflow."""
+    source = CARD_PATH.read_text()
+
+    assert "show_add: true" in source
+    assert 'type: "lizardcare/journal/create"' in source
+    assert 'entity_id: this._config.entity' in source
+    assert "if (this._submitting) return" in source
+    assert "new Date(timestamp).toISOString()" in source
+    assert "Weight Value" in source
+    assert '<option value="g"' in source
+    assert '<option value="oz"' in source
+    assert "Journal entries do not change care schedules" in source
+    assert "await this._loadEntries()" in source
+    assert "Unable to save this journal entry" in source
