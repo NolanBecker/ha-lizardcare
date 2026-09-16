@@ -91,6 +91,21 @@ blueprint:
             - label: Hours
               value: hours
           mode: dropdown
+    completion_notifications_enabled:
+      name: Send completion notifications
+      description: >
+        Replace the active reminder with a completion confirmation. When off,
+        completing food removal clears the stale reminder instead.
+      default: true
+      selector:
+        boolean:
+    completion_message:
+      name: Food Removal completion message
+      description: Optional. Leave blank to use the contextual default.
+      default: ""
+      selector:
+        text:
+          multiline: true
     pet_name_override:
       name: Pet name override
       description: >
@@ -150,6 +165,9 @@ triggers:
   - trigger: event
     event_type: mobile_app_notification_action
     id: notification_action
+  - trigger: event
+    event_type: lizardcare_care_completed
+    id: care_completed
 
 variables:
   status_entity: !input food_removal_status
@@ -195,6 +213,8 @@ variables:
   notification_service_list: !input notification_services
   configured_message: !input notification_message
   configured_pet_name: !input pet_name_override
+  send_completion_notifications: !input completion_notifications_enabled
+  configured_completion_message: !input completion_message
   vacation_calendar_entity: !input vacation_calendar
   pet_name: >
     {{ configured_pet_name | trim
@@ -205,11 +225,16 @@ variables:
        or pet_name ~ "'s food is ready to be removed." }}
   removal_action_id: >
     LIZARD_CARE_{{ this.entity_id | replace('.', '_') | upper }}_REMOVE_FOOD
+  pet_config_entry_id: "{{ config_entry_id(status_entity) or '' }}"
+  food_removal_notification_tag: >
+    lizardcare_{{ pet_config_entry_id or
+      (device_id(status_entity) or status_entity) | replace('.', '_') }}_food_removal
 
 conditions:
   - condition: template
     value_template: >
       {{ trigger.id == 'notification_action' or
+         trigger.id == 'care_completed' or
          states(status_entity) in ['due', 'overdue'] }}
 
 actions:
@@ -224,6 +249,36 @@ actions:
               entity_id: "{{ remove_food_button_entity }}"
   - condition: template
     value_template: "{{ trigger.id != 'notification_action' }}"
+  - choose:
+      - conditions: >
+          {{ trigger.id == 'care_completed' and
+             trigger.event.data.entry_id == pet_config_entry_id and
+             trigger.event.data.task == 'food_removal' }}
+        sequence:
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - choose:
+                    - conditions: "{{ send_completion_notifications }}"
+                      sequence:
+                        - action: "{{ repeat.item }}"
+                          data:
+                            title: >
+                              {{ title_text | trim or
+                                 'Lizard Care — Food Removal' }}
+                            message: >
+                              {{ configured_completion_message | trim or
+                                 pet_name ~ "'s food was removed." }}
+                            data:
+                              url: "{{ configured_dashboard_url }}"
+                              tag: "{{ food_removal_notification_tag }}"
+                  default:
+                    - action: "{{ repeat.item }}"
+                      data:
+                        message: clear_notification
+                        data:
+                          tag: "{{ food_removal_notification_tag }}"
+          - stop: Food removal completion handled
   - variables:
       vacation_events_response: {}
       vacation_is_active: false
@@ -283,6 +338,7 @@ actions:
             message: "{{ message_text }}"
             data:
               url: "{{ configured_dashboard_url }}"
+              tag: "{{ food_removal_notification_tag }}"
               actions: >
                 {{ [{'action': removal_action_id,
                      'title': 'Mark Food Removed'}]

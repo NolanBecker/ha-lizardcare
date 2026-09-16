@@ -290,6 +290,16 @@ Action IDs include the automation entity ID and task, isolating different pets
 and blueprint instances. When multiple recipients receive a notification,
 either recipient can complete the same underlying care action.
 
+Reminder notifications use a stable tag for each pet and task. Repeats replace
+the existing notification instead of stacking. When a Feed, Remove Food, Spot
+Clean, or Full Clean action succeeds, Lizard Care emits a completion event and
+the corresponding blueprint replaces the reminder with a short confirmation.
+Disable **Completion notifications** to clear the outstanding reminder instead.
+Optional per-task completion messages are available in the blueprint UI. A
+manual correction to a historical datetime is not a care action, so it stops
+future overdue reminders through the status sensor but does not send a
+completion notification.
+
 For actionable delivery, enter each recipient as a fully qualified Companion
 App notify service, such as `notify.mobile_app_nolans_phone` or
 `notify.mobile_app_iphone`. Add both services to send the same notification to
@@ -360,9 +370,12 @@ the automation does not need to be recreated.
    automation**.
 2. Choose the pet's Vacation calendar and enter its Companion notification
    service or services.
-3. Set the day-before Reminder Time (default 4:00 PM), enter the pet name, and
+3. Select the pet's optional Feed button and Feeding Status sensor. The status
+   sensor lets the vacation reminder share the same stable feeding notification
+   tag as the normal Care Reminders automation.
+4. Set the day-before Reminder Time (default 4:00 PM), enter the pet name, and
    optionally customize the title or message.
-4. Save the automation.
+5. Save the automation.
 
 At the configured local time, the blueprint asks the generic Home Assistant
 calendar API for events intersecting tomorrow, then sends once if one or more

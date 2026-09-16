@@ -23,6 +23,17 @@ blueprint:
         entity:
           filter:
             domain: button
+    feeding_status:
+      name: Feeding Status sensor
+      description: >
+        Optional but recommended. Select the same pet's Feeding Status sensor
+        so this reminder and the Care Reminders blueprint replace the same
+        notification when feeding is completed.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: sensor
     notification_target:
       name: Legacy notification target (unused)
       description: >
@@ -89,6 +100,7 @@ triggers:
 variables:
   vacation_calendar_entity: !input vacation_calendar
   feed_button_entity: !input feed_button
+  feeding_status_entity: !input feeding_status
   configured_reminder_time: !input reminder_time
   configured_pet_name: !input pet_name_override
   configured_message: !input notification_message
@@ -108,6 +120,11 @@ variables:
        as_local(previous) >= today_at(configured_reminder_time) }}
   feeding_action_id: >
     LIZARD_CARE_{{ this.entity_id | replace('.', '_') | upper }}_FEED
+  feeding_notification_tag: >
+    lizardcare_{{ config_entry_id(feeding_status_entity) or
+      config_entry_id(feed_button_entity) or
+      (device_id(feeding_status_entity) or device_id(feed_button_entity) or
+       this.entity_id) | replace('.', '_') }}_feeding
 
 actions:
   - choose:
@@ -166,6 +183,7 @@ actions:
             message: "{{ message_text }}"
             data:
               url: "{{ configured_dashboard_url }}"
+              tag: "{{ feeding_notification_tag }}"
               actions: >
                 {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
                    if feed_button_entity | trim != '' else [] }}

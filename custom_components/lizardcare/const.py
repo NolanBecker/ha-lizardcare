@@ -3,6 +3,7 @@
 DOMAIN = "lizardcare"
 MANUFACTURER = "Lizard Care"
 EVENT_JOURNAL_UPDATED = "lizardcare_journal_updated"
+EVENT_CARE_COMPLETED = "lizardcare_care_completed"
 
 CONF_PET_NAME = "pet_name"
 CONF_NORMALIZED_PET_NAME = "normalized_pet_name"

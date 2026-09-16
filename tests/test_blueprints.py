@@ -58,6 +58,7 @@ def test_food_removal_blueprint_uses_event_driven_architecture() -> None:
         "overdue_repeat",
         "startup",
         "notification_action",
+        "care_completed",
     }
     assert "delay:" not in path.read_text()
 
@@ -81,6 +82,8 @@ def test_food_removal_blueprint_inputs_and_defaults() -> None:
     assert inputs["vacation_calendar"]["default"] == ""
     assert inputs["notification_services"]["default"] == []
     assert inputs["notification_services"]["selector"]["text"]["multiple"]
+    assert inputs["completion_notifications_enabled"]["default"] is True
+    assert "completion_message" in inputs
 
 
 def test_food_removal_blueprint_uses_status_due_at_for_boundaries() -> None:
@@ -130,6 +133,7 @@ def test_care_reminder_blueprint_trigger_architecture() -> None:
         "startup",
         "notification_action",
         "cleaning_status_changed",
+        "care_completed",
     }
     assert "delay:" not in path.read_text()
 
@@ -165,6 +169,10 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "full_clean_button",
         "vacation_calendar",
         "cleaning_status",
+        "completion_notifications_enabled",
+        "feeding_completion_message",
+        "spot_clean_completion_message",
+        "full_clean_completion_message",
     } <= inputs.keys()
     assert inputs["cleaning_status"]["default"] == ""
 
@@ -212,7 +220,7 @@ def test_vacation_reminder_queries_tomorrow_once() -> None:
     assert "timedelta(days=2)" in blueprint
     assert "start_date == tomorrow" in blueprint
     assert blueprint.count('action: "{{ repeat.item }}"') == 1
-    assert "feeding_status" not in inputs
+    assert inputs["feeding_status"]["default"] == ""
     assert "reminder_time_has_passed" in blueprint
     assert "reminder_already_handled_today" in blueprint
     assert "this.attributes.last_triggered" in blueprint
@@ -296,6 +304,49 @@ def test_companion_payload_preserves_nested_mobile_data() -> None:
         assert 'url: "{{ configured_dashboard_url }}"' in blueprint
         assert "actions: >" in blueprint
         assert "notification_service_list: !input notification_services" in blueprint
+
+
+def test_completion_events_replace_or_clear_reminders() -> None:
+    """Completion branches use stable task tags for every recipient."""
+    care = (BLUEPRINT_DIR / "care_reminders.yaml").read_text()
+    food = (BLUEPRINT_DIR / "food_removal_reminder.yaml").read_text()
+    vacation = (BLUEPRINT_DIR / "vacation_care_reminder.yaml").read_text()
+
+    for blueprint in (care, food):
+        assert "event_type: lizardcare_care_completed" in blueprint
+        assert "message: clear_notification" in blueprint
+        assert "send_completion_notifications" in blueprint
+        assert "trigger.event.data.entry_id == pet_config_entry_id" in blueprint
+
+    assert (
+        "trigger.event.data.task in ['feeding', 'spot_clean', 'full_clean']"
+        in care
+    )
+    assert "completed_task == 'feeding'" in care
+    assert "completed_task == 'spot_clean'" in care
+    assert "full clean was completed" in care
+    assert "trigger.event.data.task == 'food_removal'" in food
+
+    for suffix in ("feeding", "spot_clean", "full_clean"):
+        assert f"}}_{suffix}" in care
+    assert "}_food_removal" in food
+    assert "}_feeding" in vacation
+
+    completion_section = care.split("trigger.id == 'care_completed'", 1)[1]
+    completion_section = completion_section.split("vacation_events_response", 1)[0]
+    assert "actions:" not in completion_section
+
+
+def test_vacation_feeding_tag_can_share_pet_identity() -> None:
+    """Vacation feeding can use the same config-entry-scoped notification tag."""
+    path = BLUEPRINT_DIR / "vacation_care_reminder.yaml"
+    document = yaml.load(path.read_text(), Loader=BlueprintLoader)
+    inputs = document["blueprint"]["input"]
+    blueprint = path.read_text()
+
+    assert inputs["feeding_status"]["default"] == ""
+    assert "config_entry_id(feeding_status_entity)" in blueprint
+    assert 'tag: "{{ feeding_notification_tag }}"' in blueprint
 
 
 def test_multiple_companion_recipients_use_for_each_delivery() -> None:

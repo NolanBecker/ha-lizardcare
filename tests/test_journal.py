@@ -161,19 +161,20 @@ def _care_data(manager: JournalManager) -> LizardCareData:
 
 
 @pytest.mark.parametrize(
-    ("method", "event_type"),
+    ("method", "event_type", "completion_task"),
     [
-        ("async_feed", JournalEventType.FEEDING),
-        ("async_remove_food", JournalEventType.FOOD_REMOVED),
-        ("async_spot_clean", JournalEventType.SPOT_CLEAN),
-        ("async_full_clean", JournalEventType.FULL_CLEAN),
+        ("async_feed", JournalEventType.FEEDING, "feeding"),
+        ("async_remove_food", JournalEventType.FOOD_REMOVED, "food_removal"),
+        ("async_spot_clean", JournalEventType.SPOT_CLEAN, "spot_clean"),
+        ("async_full_clean", JournalEventType.FULL_CLEAN, "full_clean"),
     ],
 )
 def test_each_care_action_creates_exactly_one_entry(
     method: str,
     event_type: JournalEventType,
+    completion_task: str,
 ) -> None:
-    """Successful button actions append once without changing old semantics."""
+    """Successful actions append once and emit one completion event."""
     manager = JournalManager(None, "pet-one", store=FakeStore())  # type: ignore[arg-type]
     data = _care_data(manager)
 
@@ -184,9 +185,15 @@ def test_each_care_action_creates_exactly_one_entry(
     assert entries[0].event_type == event_type
     assert entries[0].source == JournalSource.AUTOMATIC
     data._async_save.assert_awaited_once()  # type: ignore[attr-defined]
-    assert data._hass.bus.events == [
-        ("lizardcare_journal_updated", {"entry_id": "pet-one"})
-    ]
+    assert data._hass.bus.events[0] == (
+        "lizardcare_journal_updated",
+        {"entry_id": "pet-one"},
+    )
+    completion_event, completion_data = data._hass.bus.events[1]
+    assert completion_event == "lizardcare_care_completed"
+    assert completion_data["entry_id"] == "pet-one"
+    assert completion_data["task"] == completion_task
+    assert datetime.fromisoformat(completion_data["completed_at"]).tzinfo
 
 
 def test_manual_add_and_delete_emit_update_events() -> None:
@@ -212,6 +219,7 @@ def test_manual_timestamp_corrections_do_not_log_history() -> None:
         "async def async_set_last_fed", maxsplit=1
     )[1].split("async def async_add_listener", maxsplit=1)[0]
     assert "journal.async_add_entry" not in correction_section
+    assert "_async_fire_care_completed" not in correction_section
 
 
 def test_service_descriptions_expose_safe_journal_management() -> None:

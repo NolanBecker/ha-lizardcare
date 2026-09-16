@@ -135,6 +135,35 @@ blueprint:
       default: true
       selector:
         boolean:
+    completion_notifications_enabled:
+      name: Send completion notifications
+      description: >
+        Replace the active reminder with a completion confirmation. When off,
+        completing care clears the stale reminder instead.
+      default: true
+      selector:
+        boolean:
+    feeding_completion_message:
+      name: Feeding completion message
+      description: Optional. Leave blank to use the contextual default.
+      default: ""
+      selector:
+        text:
+          multiline: true
+    spot_clean_completion_message:
+      name: Spot Clean completion message
+      description: Optional. Leave blank to use the contextual default.
+      default: ""
+      selector:
+        text:
+          multiline: true
+    full_clean_completion_message:
+      name: Full Clean completion message
+      description: Optional. Leave blank to use the contextual default.
+      default: ""
+      selector:
+        text:
+          multiline: true
     feeding_overdue_repeat_interval:
       name: Feeding overdue repeat interval
       description: Numeric interval between overdue feeding reminders.
@@ -235,6 +264,9 @@ triggers:
     event_data:
       entity_id: !input cleaning_status
     id: cleaning_status_changed
+  - trigger: event
+    event_type: lizardcare_care_completed
+    id: care_completed
 
 variables:
   feeding_entity: !input feeding_status
@@ -249,6 +281,10 @@ variables:
   full_clean_is_enabled: !input full_clean_enabled
   send_due_today: !input due_today_enabled
   send_overdue: !input overdue_enabled
+  send_completion_notifications: !input completion_notifications_enabled
+  configured_feeding_completion_message: !input feeding_completion_message
+  configured_spot_completion_message: !input spot_clean_completion_message
+  configured_full_completion_message: !input full_clean_completion_message
   feeding_repeat_value: !input feeding_overdue_repeat_interval
   feeding_repeat_unit: !input feeding_overdue_repeat_interval_unit
   cleaning_repeat_value: !input cleaning_overdue_repeat_interval
@@ -301,6 +337,16 @@ variables:
   feeding_action_id: "{{ action_id_prefix }}_FEED"
   spot_clean_action_id: "{{ action_id_prefix }}_SPOT_CLEAN"
   full_clean_action_id: "{{ action_id_prefix }}_FULL_CLEAN"
+  pet_config_entry_id: >
+    {{ config_entry_id(feeding_entity) or
+       config_entry_id(spot_clean_entity) or
+       config_entry_id(full_clean_entity) or '' }}
+  notification_tag_prefix: >
+    lizardcare_{{ pet_config_entry_id or
+      (device_id(feeding_entity) or feeding_entity) | replace('.', '_') }}
+  feeding_notification_tag: "{{ notification_tag_prefix }}_feeding"
+  spot_clean_notification_tag: "{{ notification_tag_prefix }}_spot_clean"
+  full_clean_notification_tag: "{{ notification_tag_prefix }}_full_clean"
   combined_cleaning_type: >
     {{ state_attr(cleaning_entity, 'cleaning_type')
        if cleaning_entity | trim != '' else '' }}
@@ -333,6 +379,59 @@ actions:
               entity_id: "{{ full_clean_button_entity }}"
   - condition: template
     value_template: "{{ trigger.id != 'notification_action' }}"
+  - choose:
+      - conditions: >
+          {{ trigger.id == 'care_completed' and
+             trigger.event.data.entry_id == pet_config_entry_id and
+             trigger.event.data.task in ['feeding', 'spot_clean', 'full_clean'] }}
+        sequence:
+          - variables:
+              completed_task: "{{ trigger.event.data.task }}"
+              completion_tag: >
+                {{ feeding_notification_tag if completed_task == 'feeding'
+                   else spot_clean_notification_tag if completed_task == 'spot_clean'
+                   else full_clean_notification_tag }}
+              completion_title: >
+                {% if title_prefix | trim %}
+                  {{ title_prefix | trim }}
+                {% elif completed_task == 'feeding' %}
+                  Lizard Care — Feeding
+                {% elif completed_task == 'spot_clean' %}
+                  Lizard Care — Spot Clean
+                {% else %}
+                  Lizard Care — Full Clean
+                {% endif %}
+              completion_message: >
+                {% if completed_task == 'feeding' %}
+                  {{ configured_feeding_completion_message | trim or
+                     pet_name ~ ' was fed.' }}
+                {% elif completed_task == 'spot_clean' %}
+                  {{ configured_spot_completion_message | trim or
+                     pet_name ~ "'s spot clean was completed." }}
+                {% else %}
+                  {{ configured_full_completion_message | trim or
+                     pet_name ~ "'s full clean was completed." }}
+                {% endif %}
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - choose:
+                    - conditions: "{{ send_completion_notifications }}"
+                      sequence:
+                        - action: "{{ repeat.item }}"
+                          data:
+                            title: "{{ completion_title }}"
+                            message: "{{ completion_message }}"
+                            data:
+                              url: "{{ configured_dashboard_url }}"
+                              tag: "{{ completion_tag }}"
+                  default:
+                    - action: "{{ repeat.item }}"
+                      data:
+                        message: clear_notification
+                        data:
+                          tag: "{{ completion_tag }}"
+          - stop: Care completion handled
   - variables:
       vacation_events_response: {}
       vacation_is_active: false
@@ -392,6 +491,10 @@ actions:
                           else "'s full clean is due today.") }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: >
+                        {{ spot_clean_notification_tag
+                           if combined_cleaning_type == 'spot_clean'
+                           else full_clean_notification_tag }}
                       actions: >
                         {% set button = spot_clean_button_entity
                            if combined_cleaning_type == 'spot_clean'
@@ -418,6 +521,7 @@ actions:
                          or pet_name ~ "'s feeding is due today." }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: "{{ feeding_notification_tag }}"
                       actions: >
                         {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
                            if feed_button_entity | trim != '' else [] }}
@@ -440,6 +544,7 @@ actions:
                          or pet_name ~ "'s spot clean is due today." }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: "{{ spot_clean_notification_tag }}"
                       actions: >
                         {{ [{'action': spot_clean_action_id,
                              'title': 'Mark as Cleaned'}]
@@ -481,6 +586,10 @@ actions:
                           else "'s full clean is overdue.") }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: >
+                        {{ spot_clean_notification_tag
+                           if combined_cleaning_type == 'spot_clean'
+                           else full_clean_notification_tag }}
                       actions: >
                         {% set button = spot_clean_button_entity
                            if combined_cleaning_type == 'spot_clean'
@@ -508,6 +617,7 @@ actions:
                          or pet_name ~ "'s full clean is due today." }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: "{{ full_clean_notification_tag }}"
                       actions: >
                         {{ [{'action': full_clean_action_id,
                              'title': 'Mark as Cleaned'}]
@@ -538,6 +648,7 @@ actions:
                          or pet_name ~ "'s feeding is overdue." }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: "{{ feeding_notification_tag }}"
                       actions: >
                         {{ [{'action': feeding_action_id, 'title': 'Mark as Fed'}]
                            if feed_button_entity | trim != '' else [] }}
@@ -569,6 +680,7 @@ actions:
                          or pet_name ~ "'s spot clean is overdue." }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: "{{ spot_clean_notification_tag }}"
                       actions: >
                         {{ [{'action': spot_clean_action_id,
                              'title': 'Mark as Cleaned'}]
@@ -600,6 +712,7 @@ actions:
                          or pet_name ~ "'s full clean is overdue." }}
                     data:
                       url: "{{ configured_dashboard_url }}"
+                      tag: "{{ full_clean_notification_tag }}"
                       actions: >
                         {{ [{'action': full_clean_action_id,
                              'title': 'Mark as Cleaned'}]

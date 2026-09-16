@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    EVENT_CARE_COMPLETED,
     EVENT_JOURNAL_UPDATED,
     STATE_ALTERNATING_COMPLETED_OCCURRENCE,
     STATE_ALTERNATING_OCCURRENCE_OUTCOMES,
@@ -125,6 +126,7 @@ class LizardCareData:
             )
             self._async_fire_journal_updated()
             self._async_notify_listeners()
+            self._async_fire_care_completed("feeding", self.last_fed)
 
     async def async_remove_food(self) -> None:
         """Record food removal and mark food as removed."""
@@ -139,6 +141,9 @@ class LizardCareData:
             )
             self._async_fire_journal_updated()
             self._async_notify_listeners()
+            self._async_fire_care_completed(
+                "food_removal", self.last_food_removed
+            )
 
     async def async_reconcile_alternating_definition(
         self, schedule: CareSchedule
@@ -175,6 +180,9 @@ class LizardCareData:
             )
             self._async_fire_journal_updated()
             self._async_notify_listeners()
+            self._async_fire_care_completed(
+                "spot_clean", self.last_spot_clean
+            )
 
     async def async_full_clean(self, schedule: CareSchedule | None = None) -> None:
         """Record a full enclosure clean."""
@@ -191,6 +199,9 @@ class LizardCareData:
             )
             self._async_fire_journal_updated()
             self._async_notify_listeners()
+            self._async_fire_care_completed(
+                "full_clean", self.last_full_clean
+            )
 
     def _advance_alternating_schedule(
         self,
@@ -335,6 +346,20 @@ class LizardCareData:
         self._hass.bus.async_fire(
             EVENT_JOURNAL_UPDATED,
             {"entry_id": self.entry_id},
+        )
+
+    @callback
+    def _async_fire_care_completed(
+        self, task: str, completed_at: datetime
+    ) -> None:
+        """Publish a minimal signal for successful real care actions."""
+        self._hass.bus.async_fire(
+            EVENT_CARE_COMPLETED,
+            {
+                "entry_id": self.entry_id,
+                "task": task,
+                "completed_at": completed_at.isoformat(),
+            },
         )
 
     async def async_set_last_fed(self, value: datetime) -> None:
