@@ -135,7 +135,34 @@ def test_care_reminder_blueprint_trigger_architecture() -> None:
         "cleaning_status_changed",
         "care_completed",
     }
+    triggers_by_id = {
+        trigger["id"]: trigger for trigger in document["triggers"]
+    }
+    for trigger_id, input_name in (
+        ("feeding_overdue", "feeding_status"),
+        ("spot_clean_overdue", "spot_clean_status"),
+        ("full_clean_overdue", "full_clean_status"),
+    ):
+        trigger = triggers_by_id[trigger_id]
+        assert trigger["trigger"] == "event"
+        assert trigger["event_type"] == "state_changed"
+        assert trigger["event_data"]["entity_id"] == {
+            "input": input_name
+        }
     assert "delay:" not in path.read_text()
+
+
+def test_immediate_overdue_events_require_a_real_state_transition() -> None:
+    """Attribute-only updates cannot duplicate immediate overdue notices."""
+    blueprint = (BLUEPRINT_DIR / "care_reminders.yaml").read_text()
+
+    for trigger_id in (
+        "feeding_overdue",
+        "spot_clean_overdue",
+        "full_clean_overdue",
+    ):
+        assert f"if trigger.id == '{trigger_id}' else none" in blueprint
+    assert blueprint.count("old_state.state != 'overdue'") == 4
 
 
 def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
@@ -619,12 +646,13 @@ def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
     assert "cleaning_repeat_value | int * 60" in blueprint
     assert "today_at(configured_reminder_time)" in blueprint
     assert "minutes_from_reminder_anchor" in blueprint
+    assert "current_minutes - anchor_minutes" in blueprint
+    assert "wall_clock_offset + 1440" in blueprint
+    assert "toordinal()" not in blueprint
     assert blueprint.count("is_feeding_repeat_boundary and") == 1
     assert blueprint.count("is_cleaning_repeat_boundary and") == 3
-    assert blueprint.count(
-        "trigger.id in ['due_today', 'overdue_repeat']"
-    ) == 4
-    assert blueprint.count("not automation_ran_this_minute") == 8
+    assert blueprint.count("trigger.id == 'overdue_repeat' and") == 4
+    assert blueprint.count("not automation_ran_this_minute") == 4
     assert blueprint.count("elapsed >= 60") == 4
     assert blueprint.count("is_within_overdue_window and") == 8
     assert "\n  repeat_hours:" not in blueprint
@@ -649,10 +677,81 @@ def _is_boundary(
 ) -> bool:
     """Mirror the blueprint's Reminder Time anchored calculation."""
     anchor_minutes = anchor_hour * 60 + anchor_minute
-    wall_clock_minutes = (
-        value.toordinal() * 1440 + value.hour * 60 + value.minute
-    )
-    return (wall_clock_minutes - anchor_minutes) % interval_minutes == 0
+    current_minutes = value.hour * 60 + value.minute
+    minutes_since_anchor = current_minutes - anchor_minutes
+    if minutes_since_anchor < 0:
+        minutes_since_anchor += 1440
+    return minutes_since_anchor % interval_minutes == 0
+
+
+@pytest.mark.parametrize(
+    ("hour", "minute", "expected"),
+    [
+        (15, 59, False),
+        (16, 0, True),
+        (16, 1, False),
+        (17, 0, True),
+        (21, 46, False),
+        (22, 0, True),
+        (23, 0, True),
+    ],
+)
+def test_hourly_boundaries_from_four_pm(
+    hour: int, minute: int, expected: bool
+) -> None:
+    """Hourly repeats land exactly on each local hour after 4 PM."""
+    current = _local_datetime(2026, 9, 3, hour, minute)
+    assert _is_boundary(current, 60) is expected
+
+
+@pytest.mark.parametrize(
+    ("interval", "hour", "minute", "expected"),
+    [
+        (30, 16, 0, True),
+        (30, 16, 30, True),
+        (30, 17, 0, True),
+        (30, 17, 15, False),
+        (45, 16, 0, True),
+        (45, 16, 45, True),
+        (45, 17, 30, True),
+        (45, 18, 15, True),
+        (90, 16, 0, True),
+        (90, 17, 30, True),
+        (90, 19, 0, True),
+        (90, 20, 30, True),
+        (90, 22, 0, True),
+    ],
+)
+def test_minute_boundaries_from_four_pm(
+    interval: int,
+    hour: int,
+    minute: int,
+    expected: bool,
+) -> None:
+    """Minute intervals remain anchored to the configured reminder time."""
+    current = _local_datetime(2026, 9, 3, hour, minute)
+    assert _is_boundary(current, interval) is expected
+
+
+@pytest.mark.parametrize(
+    ("day", "hour", "minute", "expected"),
+    [
+        (3, 22, 0, True),
+        (3, 23, 0, True),
+        (4, 0, 0, True),
+        (4, 1, 0, True),
+        (4, 2, 0, True),
+        (4, 2, 1, False),
+    ],
+)
+def test_cross_midnight_hourly_boundaries(
+    day: int, hour: int, minute: int, expected: bool
+) -> None:
+    """A 10 PM anchor continues cleanly across local midnight."""
+    current = _local_datetime(2026, 9, day, hour, minute)
+    boundary = _is_boundary(current, 60, 22, 0)
+    within_window = _is_within_window(current, 22, 0, 2, 0)
+    assert (boundary and within_window) is expected
 
 
 def _is_within_window(
@@ -790,4 +889,8 @@ def test_immediate_overdue_is_not_gated_by_window() -> None:
         "spot_clean_overdue",
         "full_clean_overdue",
     ):
-        assert f"trigger.id == '{trigger_id}' or" in blueprint
+        transition = blueprint.split(
+            f"(trigger.id == '{trigger_id}'", maxsplit=1
+        )[1].split("or", maxsplit=1)[0]
+        assert "old_state.state != 'overdue'" in transition
+        assert "is_within_overdue_window" not in transition

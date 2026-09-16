@@ -3,7 +3,8 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
@@ -15,6 +16,11 @@ from custom_components.lizardcare.journal import (
     JournalManager,
     JournalSource,
     normalize_manual_metadata,
+)
+from custom_components.lizardcare.sensor import (
+    STATUS_DESCRIPTIONS,
+    LizardCareStatusSensor,
+    _next_feeding_due,
 )
 
 
@@ -220,6 +226,58 @@ def test_manual_timestamp_corrections_do_not_log_history() -> None:
     )[1].split("async def async_add_listener", maxsplit=1)[0]
     assert "journal.async_add_entry" not in correction_section
     assert "_async_fire_care_completed" not in correction_section
+
+
+def test_last_fed_correction_publishes_not_due_to_overdue_transition() -> None:
+    """A historical correction refreshes Feeding Status without completion."""
+    manager = JournalManager(None, "pet-one", store=FakeStore())  # type: ignore[arg-type]
+    data = _care_data(manager)
+    data.alternating_occurrence_outcomes = {}
+    now = datetime(2026, 9, 15, 20, 0, tzinfo=timezone.utc)
+    data.last_fed = now
+    entry = SimpleNamespace(
+        runtime_data=data,
+        entry_id="pet-one",
+        options={"feeding_interval_days": 2},
+        data={},
+    )
+    sensor = LizardCareStatusSensor(
+        entry,  # type: ignore[arg-type]
+        STATUS_DESCRIPTIONS[0],
+        _next_feeding_due,
+        "feeding",
+        lambda _instructions: "",
+        SimpleNamespace(),  # type: ignore[arg-type]
+    )
+    observed_states: list[str | None] = []
+    update_order: list[str] = []
+
+    async def record_save() -> None:
+        update_order.append("saved")
+
+    data._async_save = AsyncMock(side_effect=record_save)  # type: ignore[method-assign]
+
+    def record_status_update() -> None:
+        update_order.append("status_updated")
+        observed_states.append(sensor.native_value)
+
+    data.async_add_listener(
+        record_status_update
+    )
+
+    with patch(
+        "custom_components.lizardcare.schedule.dt_util.now",
+        return_value=now,
+    ):
+        assert sensor.native_value == "not_due"
+        asyncio.run(
+            data.async_set_last_fed(now - timedelta(days=3))
+        )
+
+    assert observed_states == ["overdue"]
+    assert update_order == ["saved", "status_updated"]
+    assert data._hass.bus.events == []
+    data._async_save.assert_awaited_once()  # type: ignore[attr-defined]
 
 
 def test_service_descriptions_expose_safe_journal_management() -> None:

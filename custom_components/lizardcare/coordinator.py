@@ -452,8 +452,8 @@ class LizardCareData:
             )
             if not timestamp_changed and not food_state_changed and not outcomes_changed:
                 return
-            self._async_notify_listeners()
             await self._async_save()
+            self._async_notify_listeners()
 
     async def _async_save(self) -> None:
         """Persist current care state."""

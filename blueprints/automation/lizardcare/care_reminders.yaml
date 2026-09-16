@@ -238,17 +238,20 @@ triggers:
   - trigger: time
     at: !input reminder_time
     id: due_today
-  - trigger: state
-    entity_id: !input feeding_status
-    to: overdue
+  - trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input feeding_status
     id: feeding_overdue
-  - trigger: state
-    entity_id: !input spot_clean_status
-    to: overdue
+  - trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input spot_clean_status
     id: spot_clean_overdue
-  - trigger: state
-    entity_id: !input full_clean_status
-    to: overdue
+  - trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input full_clean_status
     id: full_clean_overdue
   - trigger: time_pattern
     minutes: "*"
@@ -301,8 +304,11 @@ variables:
        else cleaning_repeat_value | int }}
   minutes_from_reminder_anchor: >
     {% set anchor = today_at(configured_reminder_time) %}
-    {{ now().toordinal() * 1440 + now().hour * 60 + now().minute -
-       (anchor.hour * 60 + anchor.minute) }}
+    {% set current_minutes = now().hour * 60 + now().minute %}
+    {% set anchor_minutes = anchor.hour * 60 + anchor.minute %}
+    {% set wall_clock_offset = current_minutes - anchor_minutes %}
+    {{ wall_clock_offset if wall_clock_offset >= 0
+       else wall_clock_offset + 1440 }}
   is_feeding_repeat_boundary: >
     {{ minutes_from_reminder_anchor | int %
        feeding_repeat_interval_minutes | int == 0 }}
@@ -567,9 +573,9 @@ actions:
                old_state is not none and old_state.state != 'overdue') or
               (trigger.id == 'startup' and is_within_overdue_window and
                not automation_ran_this_minute) or
-              (trigger.id in ['due_today', 'overdue_repeat'] and
+              (trigger.id == 'overdue_repeat' and
                is_within_overdue_window and is_cleaning_repeat_boundary and
-               not automation_ran_this_minute and elapsed >= 60)) }}
+               elapsed >= 60)) }}
         sequence:
           - repeat:
               for_each: "{{ notification_service_list }}"
@@ -624,18 +630,21 @@ actions:
                            if full_clean_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
+          {% set old_state = trigger.event.data.old_state
+             if trigger.id == 'feeding_overdue' else none %}
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[feeding_entity].last_changed) %}
           {{ not vacation_is_active and send_overdue and feeding_is_enabled and
              is_state(feeding_entity, 'overdue') and
-             (trigger.id == 'feeding_overdue' or
+             ((trigger.id == 'feeding_overdue' and old_state is not none and
+               old_state.state != 'overdue') or
               (trigger.id == 'startup' and
                is_within_overdue_window and
                not automation_ran_this_minute) or
-              (trigger.id in ['due_today', 'overdue_repeat'] and
+              (trigger.id == 'overdue_repeat' and
                is_within_overdue_window and
                is_feeding_repeat_boundary and
-               not automation_ran_this_minute and elapsed >= 60)) }}
+               elapsed >= 60)) }}
         sequence:
           - repeat:
               for_each: "{{ notification_service_list }}"
@@ -654,20 +663,23 @@ actions:
                            if feed_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
+          {% set old_state = trigger.event.data.old_state
+             if trigger.id == 'spot_clean_overdue' else none %}
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[spot_clean_entity].last_changed) %}
           {{ not vacation_is_active and send_overdue and spot_clean_is_enabled and
              cleaning_entity | trim == '' and
              not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'overdue') and
-             (trigger.id == 'spot_clean_overdue' or
+             ((trigger.id == 'spot_clean_overdue' and old_state is not none and
+               old_state.state != 'overdue') or
               (trigger.id == 'startup' and
                is_within_overdue_window and
                not automation_ran_this_minute) or
-              (trigger.id in ['due_today', 'overdue_repeat'] and
+              (trigger.id == 'overdue_repeat' and
                is_within_overdue_window and
                is_cleaning_repeat_boundary and
-               not automation_ran_this_minute and elapsed >= 60)) }}
+               elapsed >= 60)) }}
         sequence:
           - repeat:
               for_each: "{{ notification_service_list }}"
@@ -687,19 +699,22 @@ actions:
                            if spot_clean_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
+          {% set old_state = trigger.event.data.old_state
+             if trigger.id == 'full_clean_overdue' else none %}
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[full_clean_entity].last_changed) %}
           {{ not vacation_is_active and send_overdue and full_clean_is_enabled and
              cleaning_entity | trim == '' and
              is_state(full_clean_entity, 'overdue') and
-             (trigger.id == 'full_clean_overdue' or
+             ((trigger.id == 'full_clean_overdue' and old_state is not none and
+               old_state.state != 'overdue') or
               (trigger.id == 'startup' and
                is_within_overdue_window and
                not automation_ran_this_minute) or
-              (trigger.id in ['due_today', 'overdue_repeat'] and
+              (trigger.id == 'overdue_repeat' and
                is_within_overdue_window and
                is_cleaning_repeat_boundary and
-               not automation_ran_this_minute and elapsed >= 60)) }}
+               elapsed >= 60)) }}
         sequence:
           - repeat:
               for_each: "{{ notification_service_list }}"
