@@ -11,9 +11,14 @@ from enum import StrEnum
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
+from .config import get_config_value
 from .const import (
+    CLEANING_SCHEDULE_ALTERNATING,
     CLEANING_SCHEDULE_INTERVAL,
     CLEANING_SCHEDULE_MONTHLY,
+    CONF_ALTERNATING_ANCHOR_TYPE,
+    CONF_ALTERNATING_CLEANING_ANCHOR_DATE,
+    CONF_ALTERNATING_CLEANING_INTERVAL_DAYS,
     CONF_CLEANING_CYCLE_ANCHOR,
     CONF_CLEANING_DAY_OF_MONTH,
     CONF_CLEANING_SCHEDULE_MODE,
@@ -23,6 +28,8 @@ from .const import (
     CONF_FULL_CLEAN_SATISFIES_SPOT_CLEAN,
     CONF_SPOT_CLEAN_ENABLED,
     CONF_SPOT_CLEAN_INTERVAL_DAYS,
+    DEFAULT_ALTERNATING_ANCHOR_TYPE,
+    DEFAULT_ALTERNATING_CLEANING_INTERVAL_DAYS,
     DEFAULT_CLEANING_DAY_OF_MONTH,
     DEFAULT_CLEANING_SCHEDULE_MODE,
     DEFAULT_FEEDING_INTERVAL_DAYS,
@@ -81,6 +88,11 @@ class CareSchedule:
     cleaning_day_of_month: int
     full_clean_every: int
     cleaning_cycle_anchor: date
+    alternating_interval_days: int = 45
+    alternating_anchor_date: date = date(1970, 1, 1)
+    alternating_anchor_type: CleaningOccurrenceType = (
+        CleaningOccurrenceType.SPOT_CLEAN
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,9 +106,18 @@ class MonthlyCleaningPlan:
     occurrence_number: int
 
 
+@dataclass(frozen=True, slots=True)
+class AlternatingCleaningPlan:
+    """The authoritative next slot in a fixed alternating cadence."""
+
+    next_cleaning: datetime
+    cleaning_occurrence_type: CleaningOccurrenceType
+    occurrence_number: int
+
+
 def _positive_option(entry: ConfigEntry, key: str, default: int) -> int:
     """Return a positive integer option or its default."""
-    value = entry.options.get(key, default)
+    value = get_config_value(entry, key, default)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         return default
     return value
@@ -104,13 +125,13 @@ def _positive_option(entry: ConfigEntry, key: str, default: int) -> int:
 
 def _boolean_option(entry: ConfigEntry, key: str, default: bool) -> bool:
     """Return a boolean schedule option or its default."""
-    value = entry.options.get(key, default)
+    value = get_config_value(entry, key, default)
     return value if isinstance(value, bool) else default
 
 
 def _cleaning_anchor(entry: ConfigEntry, day_of_month: int) -> date:
     """Resolve the persisted cycle anchor or a stable upcoming default."""
-    value = entry.options.get(CONF_CLEANING_CYCLE_ANCHOR)
+    value = get_config_value(entry, CONF_CLEANING_CYCLE_ANCHOR)
     if isinstance(value, str):
         try:
             value = date.fromisoformat(value)
@@ -126,13 +147,29 @@ def _cleaning_anchor(entry: ConfigEntry, day_of_month: int) -> date:
     return monthly_occurrence_date(this_month, 2, day_of_month)
 
 
+def _date_option(entry: ConfigEntry, key: str, default: date) -> date:
+    """Resolve an ISO date option without breaking older entries."""
+    value = get_config_value(entry, key, default)
+    if isinstance(value, str):
+        try:
+            value = date.fromisoformat(value)
+        except ValueError:
+            return default
+    return value if isinstance(value, date) else default
+
+
 def get_care_schedule(entry: ConfigEntry) -> CareSchedule:
     """Resolve current schedule options, including legacy defaults."""
-    mode = entry.options.get(
+    mode = get_config_value(
+        entry,
         CONF_CLEANING_SCHEDULE_MODE,
         DEFAULT_CLEANING_SCHEDULE_MODE,
     )
-    if mode not in (CLEANING_SCHEDULE_INTERVAL, CLEANING_SCHEDULE_MONTHLY):
+    if mode not in (
+        CLEANING_SCHEDULE_INTERVAL,
+        CLEANING_SCHEDULE_MONTHLY,
+        CLEANING_SCHEDULE_ALTERNATING,
+    ):
         mode = DEFAULT_CLEANING_SCHEDULE_MODE
     cleaning_day = _positive_option(
         entry,
@@ -146,6 +183,16 @@ def get_care_schedule(entry: ConfigEntry) -> CareSchedule:
         CONF_FULL_CLEAN_EVERY,
         DEFAULT_FULL_CLEAN_EVERY,
     )
+    alternating_type = get_config_value(
+        entry,
+        CONF_ALTERNATING_ANCHOR_TYPE,
+        DEFAULT_ALTERNATING_ANCHOR_TYPE,
+    )
+    if alternating_type not in (
+        CleaningOccurrenceType.SPOT_CLEAN,
+        CleaningOccurrenceType.FULL_CLEAN,
+    ):
+        alternating_type = DEFAULT_ALTERNATING_ANCHOR_TYPE
     return CareSchedule(
         feeding_interval_days=_positive_option(
             entry,
@@ -176,6 +223,90 @@ def get_care_schedule(entry: ConfigEntry) -> CareSchedule:
         cleaning_day_of_month=cleaning_day,
         full_clean_every=full_clean_every,
         cleaning_cycle_anchor=_cleaning_anchor(entry, cleaning_day),
+        alternating_interval_days=_positive_option(
+            entry,
+            CONF_ALTERNATING_CLEANING_INTERVAL_DAYS,
+            DEFAULT_ALTERNATING_CLEANING_INTERVAL_DAYS,
+        ),
+        alternating_anchor_date=_date_option(
+            entry,
+            CONF_ALTERNATING_CLEANING_ANCHOR_DATE,
+            dt_util.now().date(),
+        ),
+        alternating_anchor_type=CleaningOccurrenceType(alternating_type),
+    )
+
+
+def alternating_occurrence_type(
+    occurrence_number: int,
+    anchor_type: CleaningOccurrenceType,
+) -> CleaningOccurrenceType:
+    """Return the task type for a one-based alternating occurrence."""
+    if occurrence_number % 2 == 1:
+        return anchor_type
+    return (
+        CleaningOccurrenceType.FULL_CLEAN
+        if anchor_type is CleaningOccurrenceType.SPOT_CLEAN
+        else CleaningOccurrenceType.SPOT_CLEAN
+    )
+
+
+def alternating_schedule_definition(schedule: CareSchedule) -> str | None:
+    """Return the persisted identity of the effective alternating cadence."""
+    if schedule.cleaning_schedule_mode != CLEANING_SCHEDULE_ALTERNATING:
+        return None
+    return "|".join(
+        (
+            schedule.alternating_anchor_date.isoformat(),
+            str(schedule.alternating_interval_days),
+            schedule.alternating_anchor_type.value,
+        )
+    )
+
+
+def alternating_occurrence_date(
+    anchor: date,
+    occurrence_number: int,
+    interval_days: int,
+) -> date:
+    """Return a fixed-cadence date using exact calendar-day increments."""
+    return anchor + timedelta(days=(occurrence_number - 1) * interval_days)
+
+
+def first_alternating_occurrence_after(
+    value: date,
+    schedule: CareSchedule,
+) -> int:
+    """Return the first occurrence whose date is strictly after value."""
+    elapsed = (value - schedule.alternating_anchor_date).days
+    if elapsed < 0:
+        return 1
+    return elapsed // schedule.alternating_interval_days + 2
+
+
+def calculate_alternating_cleaning_plan(
+    schedule: CareSchedule,
+    completed_occurrence: int | None,
+) -> AlternatingCleaningPlan:
+    """Calculate the next fixed slot from separately persisted progression."""
+    occurrence = max(0, completed_occurrence or 0) + 1
+    due_date = alternating_occurrence_date(
+        schedule.alternating_anchor_date,
+        occurrence,
+        schedule.alternating_interval_days,
+    )
+    local_value = datetime.combine(
+        due_date,
+        time.min,
+        tzinfo=dt_util.get_default_time_zone(),
+    )
+    return AlternatingCleaningPlan(
+        next_cleaning=dt_util.as_utc(local_value),
+        cleaning_occurrence_type=alternating_occurrence_type(
+            occurrence,
+            schedule.alternating_anchor_type,
+        ),
+        occurrence_number=occurrence,
     )
 
 

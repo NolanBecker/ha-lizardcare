@@ -9,6 +9,7 @@ from datetime import date
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .config import get_config_value
 from .const import (
     CONF_BIRTH_DATE,
     CONF_NOTES,
@@ -32,10 +33,7 @@ class PetProfile:
 
 def _entry_value(entry: ConfigEntry, key: str) -> str | None:
     """Return an option override or the original config-entry value."""
-    if key in entry.options:
-        value = entry.options[key]
-    else:
-        value = entry.data.get(key)
+    value = get_config_value(entry, key)
     return value if isinstance(value, str) and value else None
 
 

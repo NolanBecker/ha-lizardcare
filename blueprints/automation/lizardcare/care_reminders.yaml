@@ -30,6 +30,16 @@ blueprint:
         entity:
           filter:
             domain: sensor
+    cleaning_status:
+      name: Combined Cleaning Status sensor
+      description: >
+        Optional. Select Lizard Care Cleaning Status for Alternating mode.
+        Leave blank for existing Independent or Monthly automations.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: sensor
     feed_button:
       name: Feed button
       description: Optional. Required to show the Mark as Fed action.
@@ -220,11 +230,17 @@ triggers:
   - trigger: event
     event_type: mobile_app_notification_action
     id: notification_action
+  - trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input cleaning_status
+    id: cleaning_status_changed
 
 variables:
   feeding_entity: !input feeding_status
   spot_clean_entity: !input spot_clean_status
   full_clean_entity: !input full_clean_status
+  cleaning_entity: !input cleaning_status
   feed_button_entity: !input feed_button
   spot_clean_button_entity: !input spot_clean_button
   full_clean_button_entity: !input full_clean_button
@@ -285,6 +301,9 @@ variables:
   feeding_action_id: "{{ action_id_prefix }}_FEED"
   spot_clean_action_id: "{{ action_id_prefix }}_SPOT_CLEAN"
   full_clean_action_id: "{{ action_id_prefix }}_FULL_CLEAN"
+  combined_cleaning_type: >
+    {{ state_attr(cleaning_entity, 'cleaning_type')
+       if cleaning_entity | trim != '' else '' }}
 
 actions:
   - choose:
@@ -351,6 +370,39 @@ actions:
                 {{ ns.active }}
   - choose:
       - conditions: >
+          {{ cleaning_entity | trim != '' and
+             trigger.id == 'due_today' and send_due_today and
+             not vacation_is_active and
+             is_state(cleaning_entity, 'due_today') and
+             ((combined_cleaning_type == 'spot_clean' and spot_clean_is_enabled) or
+              (combined_cleaning_type == 'full_clean' and full_clean_is_enabled)) }}
+        sequence:
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: >
+                      {{ title_prefix | trim or
+                         ('Lizard Care — Spot Clean' if combined_cleaning_type == 'spot_clean'
+                          else 'Lizard Care — Full Clean') }}
+                    message: >
+                      {{ configured_message | trim or pet_name ~
+                         ("'s spot clean is due today." if combined_cleaning_type == 'spot_clean'
+                          else "'s full clean is due today.") }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {% set button = spot_clean_button_entity
+                           if combined_cleaning_type == 'spot_clean'
+                           else full_clean_button_entity %}
+                        {% set action = spot_clean_action_id
+                           if combined_cleaning_type == 'spot_clean'
+                           else full_clean_action_id %}
+                        {{ [{'action': action, 'title': 'Mark as Cleaned'}]
+                           if button | trim != '' else [] }}
+  - choose:
+      - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
              not vacation_is_active and feeding_is_enabled and
              is_state(feeding_entity, 'due_today') }}
@@ -372,6 +424,7 @@ actions:
   - choose:
       - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
+             cleaning_entity | trim == '' and
              not vacation_is_active and spot_clean_is_enabled and
              not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'due_today') }}
@@ -393,7 +446,54 @@ actions:
                            if spot_clean_button_entity | trim != '' else [] }}
   - choose:
       - conditions: >
+          {% set changed_entity = trigger.event.data.entity_id
+             if trigger.id == 'cleaning_status_changed' else '' %}
+          {% set old_state = trigger.event.data.old_state
+             if trigger.id == 'cleaning_status_changed' else none %}
+          {% set elapsed = as_timestamp(now()) -
+             as_timestamp(states[cleaning_entity].last_changed)
+             if cleaning_entity | trim != '' else 0 %}
+          {{ cleaning_entity | trim != '' and not vacation_is_active and
+             send_overdue and is_state(cleaning_entity, 'overdue') and
+             ((combined_cleaning_type == 'spot_clean' and spot_clean_is_enabled) or
+              (combined_cleaning_type == 'full_clean' and full_clean_is_enabled)) and
+             ((trigger.id == 'cleaning_status_changed' and
+               changed_entity == cleaning_entity and
+               old_state is not none and old_state.state != 'overdue') or
+              (trigger.id == 'startup' and is_within_overdue_window and
+               not automation_ran_this_minute) or
+              (trigger.id in ['due_today', 'overdue_repeat'] and
+               is_within_overdue_window and is_cleaning_repeat_boundary and
+               not automation_ran_this_minute and elapsed >= 60)) }}
+        sequence:
+          - repeat:
+              for_each: "{{ notification_service_list }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  data:
+                    title: >
+                      {{ title_prefix | trim or
+                         ('Lizard Care — Spot Clean' if combined_cleaning_type == 'spot_clean'
+                          else 'Lizard Care — Full Clean') }}
+                    message: >
+                      {{ configured_message | trim or pet_name ~
+                         ("'s spot clean is overdue." if combined_cleaning_type == 'spot_clean'
+                          else "'s full clean is overdue.") }}
+                    data:
+                      url: "{{ configured_dashboard_url }}"
+                      actions: >
+                        {% set button = spot_clean_button_entity
+                           if combined_cleaning_type == 'spot_clean'
+                           else full_clean_button_entity %}
+                        {% set action = spot_clean_action_id
+                           if combined_cleaning_type == 'spot_clean'
+                           else full_clean_action_id %}
+                        {{ [{'action': action, 'title': 'Mark as Cleaned'}]
+                           if button | trim != '' else [] }}
+  - choose:
+      - conditions: >
           {{ trigger.id == 'due_today' and send_due_today and
+             cleaning_entity | trim == '' and
              not vacation_is_active and full_clean_is_enabled and
              is_state(full_clean_entity, 'due_today') }}
         sequence:
@@ -446,6 +546,7 @@ actions:
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[spot_clean_entity].last_changed) %}
           {{ not vacation_is_active and send_overdue and spot_clean_is_enabled and
+             cleaning_entity | trim == '' and
              not is_state(spot_clean_entity, 'disabled') and
              is_state(spot_clean_entity, 'overdue') and
              (trigger.id == 'spot_clean_overdue' or
@@ -477,6 +578,7 @@ actions:
           {% set elapsed = as_timestamp(now()) -
              as_timestamp(states[full_clean_entity].last_changed) %}
           {{ not vacation_is_active and send_overdue and full_clean_is_enabled and
+             cleaning_entity | trim == '' and
              is_state(full_clean_entity, 'overdue') and
              (trigger.id == 'full_clean_overdue' or
               (trigger.id == 'startup' and

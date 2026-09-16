@@ -46,14 +46,14 @@ async def async_setup_entry(
                 data,
                 entry.entry_id,
                 BUTTON_DESCRIPTIONS[2],
-                data.async_spot_clean,
+                lambda: data.async_spot_clean(get_care_schedule(entry)),
                 lambda: get_care_schedule(entry).spot_clean_enabled,
             ),
             LizardCareButton(
                 data,
                 entry.entry_id,
                 BUTTON_DESCRIPTIONS[3],
-                data.async_full_clean,
+                lambda: data.async_full_clean(get_care_schedule(entry)),
             ),
         ]
     )

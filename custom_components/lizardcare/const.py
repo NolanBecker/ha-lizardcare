@@ -32,6 +32,11 @@ CONF_CLEANING_SCHEDULE_MODE = "cleaning_schedule_mode"
 CONF_CLEANING_DAY_OF_MONTH = "cleaning_day_of_month"
 CONF_FULL_CLEAN_EVERY = "full_clean_every"
 CONF_CLEANING_CYCLE_ANCHOR = "cleaning_cycle_anchor"
+CONF_ALTERNATING_CLEANING_INTERVAL_DAYS = (
+    "alternating_cleaning_interval_days"
+)
+CONF_ALTERNATING_CLEANING_ANCHOR_DATE = "alternating_cleaning_anchor_date"
+CONF_ALTERNATING_ANCHOR_TYPE = "alternating_cleaning_anchor_type"
 
 DEFAULT_FEEDING_INTERVAL_DAYS = 2
 DEFAULT_SPOT_CLEAN_INTERVAL_DAYS = 7
@@ -41,9 +46,12 @@ DEFAULT_FULL_CLEAN_SATISFIES_SPOT_CLEAN = True
 DEFAULT_CLEANING_SCHEDULE_MODE = "interval"
 DEFAULT_CLEANING_DAY_OF_MONTH = 1
 DEFAULT_FULL_CLEAN_EVERY = 3
+DEFAULT_ALTERNATING_CLEANING_INTERVAL_DAYS = 45
+DEFAULT_ALTERNATING_ANCHOR_TYPE = "spot_clean"
 
 CLEANING_SCHEDULE_INTERVAL = "interval"
 CLEANING_SCHEDULE_MONTHLY = "monthly"
+CLEANING_SCHEDULE_ALTERNATING = "alternating"
 
 # Keep the existing option key so previously configured removal delays carry
 # forward. It is now care timing, independent of notifications.
@@ -66,3 +74,6 @@ STATE_LAST_FOOD_REMOVED = "last_food_removed"
 STATE_FOOD_IN_ENCLOSURE = "food_in_enclosure"
 STATE_LAST_SPOT_CLEAN = "last_spot_clean"
 STATE_LAST_FULL_CLEAN = "last_full_clean"
+STATE_ALTERNATING_COMPLETED_OCCURRENCE = "alternating_completed_occurrence"
+STATE_ALTERNATING_OCCURRENCE_OUTCOMES = "alternating_occurrence_outcomes"
+STATE_ALTERNATING_SCHEDULE_DEFINITION = "alternating_schedule_definition"

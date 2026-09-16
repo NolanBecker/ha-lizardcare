@@ -9,6 +9,7 @@ from .const import DOMAIN, MANUFACTURER
 from .coordinator import LizardCareData
 from .frontend import async_register_frontend
 from .profile import get_pet_profile
+from .schedule import get_care_schedule
 from .services import async_setup_services
 from .websocket_api import async_register_websocket_commands
 
@@ -36,6 +37,9 @@ async def async_setup_entry(
     """Set up Lizard Care from a config entry."""
     data = LizardCareData(hass, entry.entry_id)
     await data.async_load()
+    await data.async_reconcile_alternating_definition(
+        get_care_schedule(entry)
+    )
     entry.runtime_data = data
     profile = get_pet_profile(entry)
 

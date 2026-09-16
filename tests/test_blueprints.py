@@ -129,6 +129,7 @@ def test_care_reminder_blueprint_trigger_architecture() -> None:
         "overdue_repeat",
         "startup",
         "notification_action",
+        "cleaning_status_changed",
     }
     assert "delay:" not in path.read_text()
 
@@ -163,7 +164,23 @@ def test_care_reminder_blueprint_inputs_remain_compatible() -> None:
         "spot_clean_button",
         "full_clean_button",
         "vacation_calendar",
+        "cleaning_status",
     } <= inputs.keys()
+    assert inputs["cleaning_status"]["default"] == ""
+
+
+def test_alternating_cleaning_reminder_uses_authoritative_type() -> None:
+    """The optional combined sensor selects the matching copy and button."""
+    blueprint = (BLUEPRINT_DIR / "care_reminders.yaml").read_text()
+
+    assert "state_attr(cleaning_entity, 'cleaning_type')" in blueprint
+    assert "entity_id: !input cleaning_status" in blueprint
+    assert "changed_entity == cleaning_entity" in blueprint
+    assert "old_state.state != 'overdue'" in blueprint
+    assert "combined_cleaning_type == 'spot_clean'" in blueprint
+    assert "spot_clean_button_entity" in blueprint
+    assert "full_clean_button_entity" in blueprint
+    assert "cleaning_entity | trim == ''" in blueprint
 
 
 def test_existing_reminders_query_and_suppress_active_vacations() -> None:
@@ -552,13 +569,13 @@ def test_repeat_calculation_uses_wall_clock_boundaries() -> None:
     assert "today_at(configured_reminder_time)" in blueprint
     assert "minutes_from_reminder_anchor" in blueprint
     assert blueprint.count("is_feeding_repeat_boundary and") == 1
-    assert blueprint.count("is_cleaning_repeat_boundary and") == 2
+    assert blueprint.count("is_cleaning_repeat_boundary and") == 3
     assert blueprint.count(
         "trigger.id in ['due_today', 'overdue_repeat']"
-    ) == 3
-    assert blueprint.count("not automation_ran_this_minute") == 6
-    assert blueprint.count("elapsed >= 60") == 3
-    assert blueprint.count("is_within_overdue_window and") == 6
+    ) == 4
+    assert blueprint.count("not automation_ran_this_minute") == 8
+    assert blueprint.count("elapsed >= 60") == 4
+    assert blueprint.count("is_within_overdue_window and") == 8
     assert "\n  repeat_hours:" not in blueprint
 
 
@@ -636,7 +653,7 @@ def test_due_today_and_recovery_triggers_are_unchanged() -> None:
     assert "trigger.id == 'feeding_overdue'" in blueprint
     assert "trigger.id == 'spot_clean_overdue'" in blueprint
     assert "trigger.id == 'full_clean_overdue'" in blueprint
-    assert blueprint.count("trigger.id == 'startup'") == 3
+    assert blueprint.count("trigger.id == 'startup'") == 4
 
 
 def test_feeding_and_cleaning_share_anchor_with_different_intervals() -> None:

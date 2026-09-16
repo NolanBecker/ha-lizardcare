@@ -16,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import LizardCareConfigEntry
 from .coordinator import LizardCareData
 from .entity import LizardCareEntity
+from .schedule import get_care_schedule
 
 DATETIME_DESCRIPTIONS = (
     DateTimeEntityDescription(
@@ -69,14 +70,18 @@ async def async_setup_entry(
                 entry.entry_id,
                 DATETIME_DESCRIPTIONS[2],
                 lambda state: state.last_spot_clean,
-                data.async_set_last_spot_clean,
+                lambda value: data.async_set_last_spot_clean(
+                    value, get_care_schedule(entry)
+                ),
             ),
             LizardCareDateTime(
                 data,
                 entry.entry_id,
                 DATETIME_DESCRIPTIONS[3],
                 lambda state: state.last_full_clean,
-                data.async_set_last_full_clean,
+                lambda value: data.async_set_last_full_clean(
+                    value, get_care_schedule(entry)
+                ),
             ),
         ]
     )

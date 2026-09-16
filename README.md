@@ -48,15 +48,45 @@ care-state architecture.
 
 ## Cleaning schedules
 
-Cleaning can use either scheduling mode:
+Cleaning supports three scheduling modes:
 
-- **Interval** preserves the original behavior: the next Spot Clean and Full
+- **Independent** preserves the original interval behavior: the next Spot Clean and Full
   Clean dates are calculated from their configured day intervals and latest
   completion timestamps.
 - **Monthly** anchors cleaning to a selected day of every calendar month. If
   that day does not exist in a month, Lizard Care uses the month's last valid
   day—for example, day 31 becomes February 28 (or 29 in a leap year) and April
   30.
+- **Alternating** uses one fixed sequence that alternates Spot Clean and Full
+  Clean. Configure an exact day interval, an anchor date, and the cleaning type
+  assigned to that anchor. This mode exposes one authoritative **Cleaning
+  Status** sensor with `cleaning_type`, `due_date`, `due_at`, occurrence number,
+  and the latest completion for the active type.
+
+An Alternating schedule with a January 1 Spot Clean anchor and a 45-day interval
+is January 1 Spot, February 15 Full, April 1 Spot, May 16 Full, and June 30 Spot.
+The cadence is always calculated from the scheduled anchor: completing the
+February 15 Full Clean on February 18 still leaves the next Spot Clean on April
+1, not April 4. If a very overdue task is completed after later slots have also
+passed, those elapsed slots are skipped and the next future slot retains its
+mathematically assigned type.
+
+Alternating progression is stored separately from Last Spot Clean and Last Full
+Clean history. Timestamp corrections never advance it. Moving a correction
+backward can reopen explicitly completed occurrences of that same cleaning type,
+while intentionally skipped occurrences and the other cleaning type remain
+intact. Corrections still create no Care History entries. Pressing the button
+that matches the active `cleaning_type` satisfies the slot; pressing the other
+button still records the physical clean and one Care History event, but does not
+advance the alternating schedule. Existing pets continue using Independent
+interval scheduling unless Alternating is selected explicitly.
+
+Changing the Alternating anchor date, interval, or anchor cleaning type defines
+a new schedule. Saving any of those options clears only alternating progression
+and immediately starts occurrence 1 from the new definition; Last Spot Clean,
+Last Full Clean, and Care History remain untouched. Identical settings and
+unrelated profile or care-option edits preserve progression. Switching into or
+out of Alternating also starts with fresh alternating progression.
 
 **Spot Clean enabled** defaults on for backward compatibility. When disabled,
 Spot Clean Status reports `disabled`, Next Spot Clean has no timestamp and
@@ -229,7 +259,11 @@ Alternatively, copy all three repository files into
 1. Open **Settings → Automations & scenes → Blueprints**.
 2. Find **Lizard Care — Care Reminders** and select **Create automation**.
 3. Choose one pet's Feeding Status, Spot Clean Status, and Full Clean Status
-   sensors.
+   sensors. For an Alternating schedule, also select that pet's combined
+   **Cleaning Status** sensor; the blueprint then uses its `cleaning_type` to
+   choose the correct message and Spot Clean or Full Clean action button. Leave
+   this optional input blank for Independent or Monthly schedules and existing
+   automations continue unchanged.
 4. Enter one or more Companion notification services, choose the optional
    Vacation calendar, reminder time, enabled care categories, and
    overdue repeat intervals. Each category has a numeric value and an

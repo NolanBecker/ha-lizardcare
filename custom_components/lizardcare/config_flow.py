@@ -15,8 +15,12 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CLEANING_SCHEDULE_ALTERNATING,
     CLEANING_SCHEDULE_INTERVAL,
     CLEANING_SCHEDULE_MONTHLY,
+    CONF_ALTERNATING_ANCHOR_TYPE,
+    CONF_ALTERNATING_CLEANING_ANCHOR_DATE,
+    CONF_ALTERNATING_CLEANING_INTERVAL_DAYS,
     CONF_BIRTH_DATE,
     CONF_CLEANING_CYCLE_ANCHOR,
     CONF_CLEANING_DAY_OF_MONTH,
@@ -118,11 +122,15 @@ def _options_schema() -> vol.Schema:
                     options=[
                         selector.SelectOptionDict(
                             value=CLEANING_SCHEDULE_INTERVAL,
-                            label="Interval",
+                            label="Independent",
                         ),
                         selector.SelectOptionDict(
                             value=CLEANING_SCHEDULE_MONTHLY,
                             label="Monthly",
+                        ),
+                        selector.SelectOptionDict(
+                            value=CLEANING_SCHEDULE_ALTERNATING,
+                            label="Alternating",
                         ),
                     ],
                     mode=selector.SelectSelectorMode.DROPDOWN,
@@ -131,6 +139,27 @@ def _options_schema() -> vol.Schema:
             vol.Required(CONF_CLEANING_DAY_OF_MONTH): _day_of_month_selector(),
             vol.Required(CONF_FULL_CLEAN_EVERY): _positive_integer_selector(),
             vol.Required(CONF_CLEANING_CYCLE_ANCHOR): selector.DateSelector(),
+            vol.Required(
+                CONF_ALTERNATING_CLEANING_INTERVAL_DAYS
+            ): _positive_integer_selector(),
+            vol.Required(
+                CONF_ALTERNATING_CLEANING_ANCHOR_DATE
+            ): selector.DateSelector(),
+            vol.Required(CONF_ALTERNATING_ANCHOR_TYPE): (
+                selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(
+                                value="spot_clean", label="Spot Clean"
+                            ),
+                            selector.SelectOptionDict(
+                                value="full_clean", label="Full Clean"
+                            ),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
+            ),
             vol.Optional(CONF_FEEDING_INSTRUCTIONS): selector.TextSelector(
                 selector.TextSelectorConfig(multiline=True)
             ),
@@ -241,6 +270,7 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     CONF_SPOT_CLEAN_INTERVAL_DAYS,
                     CONF_FULL_CLEAN_INTERVAL_DAYS,
                     CONF_FULL_CLEAN_EVERY,
+                    CONF_ALTERNATING_CLEANING_INTERVAL_DAYS,
                     CONF_FOOD_REMOVAL_DELAY,
                 ):
                     value = _as_positive_int(user_input[key])
@@ -275,6 +305,12 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
                     ],
                     CONF_CLEANING_CYCLE_ANCHOR: user_input[
                         CONF_CLEANING_CYCLE_ANCHOR
+                    ],
+                    CONF_ALTERNATING_CLEANING_ANCHOR_DATE: user_input[
+                        CONF_ALTERNATING_CLEANING_ANCHOR_DATE
+                    ],
+                    CONF_ALTERNATING_ANCHOR_TYPE: user_input[
+                        CONF_ALTERNATING_ANCHOR_TYPE
                     ],
                     CONF_FEEDING_INSTRUCTIONS: clean_instruction(
                         user_input.get(CONF_FEEDING_INSTRUCTIONS)
@@ -323,6 +359,15 @@ class LizardCareOptionsFlow(OptionsFlowWithReload):
             CONF_FULL_CLEAN_EVERY: schedule.full_clean_every,
             CONF_CLEANING_CYCLE_ANCHOR: (
                 schedule.cleaning_cycle_anchor.isoformat()
+            ),
+            CONF_ALTERNATING_CLEANING_INTERVAL_DAYS: (
+                schedule.alternating_interval_days
+            ),
+            CONF_ALTERNATING_CLEANING_ANCHOR_DATE: (
+                schedule.alternating_anchor_date.isoformat()
+            ),
+            CONF_ALTERNATING_ANCHOR_TYPE: (
+                schedule.alternating_anchor_type.value
             ),
             CONF_FEEDING_INSTRUCTIONS: instructions.feeding,
             CONF_SPOT_CLEAN_INSTRUCTIONS: instructions.spot_clean,

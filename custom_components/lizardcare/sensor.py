@@ -19,7 +19,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from . import LizardCareConfigEntry
-from .const import CLEANING_SCHEDULE_MONTHLY
+from .const import CLEANING_SCHEDULE_ALTERNATING, CLEANING_SCHEDULE_MONTHLY
 from .coordinator import LizardCareData
 from .derived import (
     CareActivity,
@@ -40,10 +40,12 @@ from .food_removal import (
 from .instructions import CareInstructions, get_care_instructions
 from .profile import get_birth_date, get_pet_profile
 from .schedule import (
+    AlternatingCleaningPlan,
     CareStatus,
     MonthlyCleaningPlan,
     OverallCareResult,
     OverallCareStatus,
+    calculate_alternating_cleaning_plan,
     calculate_care_status,
     calculate_effective_last_spot_clean,
     calculate_monthly_cleaning_plan,
@@ -157,6 +159,18 @@ CARE_STATUS_DESCRIPTION = SensorEntityDescription(
     translation_key="care_status",
     device_class=SensorDeviceClass.ENUM,
     options=[status.value for status in OverallCareStatus],
+)
+
+CLEANING_STATUS_DESCRIPTION = SensorEntityDescription(
+    key="cleaning_status",
+    translation_key="cleaning_status",
+    device_class=SensorDeviceClass.ENUM,
+    options=[
+        status.value
+        for status in CareStatus
+        if status is not CareStatus.DISABLED
+    ],
+    icon="mdi:spray-bottle",
 )
 
 LAST_CARE_ACTIVITY_DESCRIPTION = SensorEntityDescription(
@@ -352,6 +366,7 @@ async def async_setup_entry(
                 lambda instructions: instructions.full_clean,
                 time_updater,
             ),
+            LizardCareAlternatingCleaningStatusSensor(entry, time_updater),
             LizardCareOverallCareStatusSensor(entry, time_updater),
             LizardCareFoodRemovalStatusSensor(entry, time_updater),
             LizardCareLastCareActivitySensor(entry, time_updater),
@@ -618,6 +633,11 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the calculated schedule status."""
         schedule = get_care_schedule(self._entry)
+        if self._task_key in ("spot_clean", "full_clean"):
+            status = _cleaning_status(
+                self._entry, self._data, self._task_key
+            )
+            return status.value if status is not None else None
         if self._task_key == "spot_clean" and not schedule.spot_clean_enabled:
             return CareStatus.DISABLED.value
         next_due = self._next_due_fn(self._entry, self._data)
@@ -660,6 +680,74 @@ class LizardCareStatusSensor(LizardCareEntity, SensorEntity):
         """Calculate local-calendar distance for this care schedule."""
         next_due = self._next_due_fn(self._entry, self._data)
         return calculate_due_day_counts(next_due)
+
+
+class LizardCareAlternatingCleaningStatusSensor(
+    LizardCareEntity, SensorEntity
+):
+    """Expose the one authoritative task in Alternating mode."""
+
+    entity_description = CLEANING_STATUS_DESCRIPTION
+
+    def __init__(
+        self,
+        entry: LizardCareConfigEntry,
+        time_updater: LizardCareSensorTimeUpdater,
+    ) -> None:
+        """Initialize the combined cleaning status sensor."""
+        super().__init__(
+            entry.runtime_data,
+            entry.entry_id,
+            CLEANING_STATUS_DESCRIPTION,
+        )
+        self._entry = entry
+        self._time_updater = time_updater
+
+    @property
+    def available(self) -> bool:
+        """Expose this source of truth only for Alternating mode."""
+        return super().available and (
+            get_care_schedule(self._entry).cleaning_schedule_mode
+            == CLEANING_SCHEDULE_ALTERNATING
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Update at local midnight and after runtime mutations."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._time_updater.async_add_daily_listener(
+                self.async_write_ha_state
+            )
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return status for the active alternating slot."""
+        status = calculate_care_status(self._plan().next_cleaning)
+        return (status or CareStatus.NOT_DUE).value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | int | datetime]:
+        """Expose small dashboard and automation context."""
+        plan = self._plan()
+        last_completed = (
+            self._data.last_spot_clean
+            if plan.cleaning_occurrence_type.value == "spot_clean"
+            else self._data.last_full_clean
+        )
+        return {
+            "cleaning_type": plan.cleaning_occurrence_type.value,
+            "due_date": dt_util.as_local(plan.next_cleaning)
+            .date()
+            .isoformat(),
+            "due_at": plan.next_cleaning,
+            "occurrence_number": plan.occurrence_number,
+            "last_completed": last_completed,
+        }
+
+    def _plan(self) -> AlternatingCleaningPlan:
+        """Return the current fixed schedule slot."""
+        return _alternating_cleaning_plan(self._entry, self._data)
 
 
 class LizardCareFoodRemovalStatusSensor(LizardCareEntity, SensorEntity):
@@ -812,6 +900,12 @@ class LizardCareOverallCareStatusSensor(LizardCareEntity, SensorEntity):
         )
         if self._data.food_in_enclosure:
             item_statuses["food_removal"] = self._food_removal_status()
+        if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_ALTERNATING:
+            plan = _alternating_cleaning_plan(self._entry, self._data)
+            item_statuses[plan.cleaning_occurrence_type.value] = (
+                calculate_care_status(plan.next_cleaning, today)
+            )
+            return calculate_overall_care_status(item_statuses)
         item_statuses["spot_clean"] = _cleaning_status(
             self._entry,
             self._data,
@@ -948,6 +1042,17 @@ def _monthly_cleaning_plan(
     )
 
 
+def _alternating_cleaning_plan(
+    entry: LizardCareConfigEntry,
+    data: LizardCareData,
+) -> AlternatingCleaningPlan:
+    """Return the fixed alternating plan from persisted progression."""
+    return calculate_alternating_cleaning_plan(
+        get_care_schedule(entry),
+        data.alternating_completed_occurrence,
+    )
+
+
 def _next_feeding_due(
     entry: LizardCareConfigEntry,
     data: LizardCareData,
@@ -969,6 +1074,13 @@ def _next_spot_clean_due(
         return None
     if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY:
         return _monthly_cleaning_plan(entry, data).next_spot_clean
+    if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_ALTERNATING:
+        plan = _alternating_cleaning_plan(entry, data)
+        return (
+            plan.next_cleaning
+            if plan.cleaning_occurrence_type.value == "spot_clean"
+            else None
+        )
     return calculate_next_due(
         _effective_last_spot_clean(entry, data),
         schedule.spot_clean_interval_days,
@@ -983,6 +1095,13 @@ def _next_full_clean_due(
     schedule = get_care_schedule(entry)
     if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_MONTHLY:
         return _monthly_cleaning_plan(entry, data).next_full_clean
+    if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_ALTERNATING:
+        plan = _alternating_cleaning_plan(entry, data)
+        return (
+            plan.next_cleaning
+            if plan.cleaning_occurrence_type.value == "full_clean"
+            else None
+        )
     return calculate_next_due(
         data.last_full_clean,
         schedule.full_clean_interval_days,
@@ -1005,6 +1124,10 @@ def _cleaning_status(
         and schedule.full_clean_every == 1
     ):
         return CareStatus.NOT_DUE
+    if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_ALTERNATING:
+        plan = _alternating_cleaning_plan(entry, data)
+        if plan.cleaning_occurrence_type.value != task_key:
+            return CareStatus.NOT_DUE
     next_due = (
         _next_spot_clean_due(entry, data)
         if task_key == "spot_clean"
@@ -1026,6 +1149,20 @@ def _cleaning_schedule_attributes(
         "schedule_mode": schedule.cleaning_schedule_mode,
         "spot_clean_enabled": schedule.spot_clean_enabled,
     }
+    if schedule.cleaning_schedule_mode == CLEANING_SCHEDULE_ALTERNATING:
+        plan = _alternating_cleaning_plan(entry, data)
+        attributes.update(
+            {
+                "cleaning_occurrence_type": (
+                    plan.cleaning_occurrence_type.value
+                ),
+                "next_cleaning": plan.next_cleaning,
+                "occurrence_number": plan.occurrence_number,
+                "interval_days": schedule.alternating_interval_days,
+                "anchor_date": schedule.alternating_anchor_date.isoformat(),
+            }
+        )
+        return attributes
     if schedule.cleaning_schedule_mode != CLEANING_SCHEDULE_MONTHLY:
         return attributes
     plan = _monthly_cleaning_plan(entry, data)

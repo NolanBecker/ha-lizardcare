@@ -47,6 +47,9 @@
           "cleaning_day_of_month": "Cleaning day of month",
           "full_clean_every": "Full clean every",
           "cleaning_cycle_anchor": "Full-clean cycle anchor",
+          "alternating_cleaning_interval_days": "Alternating cleaning interval in days",
+          "alternating_cleaning_anchor_date": "Alternating schedule anchor date",
+          "alternating_cleaning_anchor_type": "Anchor cleaning type",
           "feeding_instructions": "Feeding instructions",
           "spot_clean_instructions": "Spot clean instructions",
           "full_clean_instructions": "Full clean instructions",
@@ -64,10 +67,13 @@
           "spot_clean_interval_days": "Interval mode only. Number of days between spot cleans.",
           "full_clean_interval_days": "Interval mode only. Number of days between full enclosure cleans.",
           "full_clean_satisfies_spot_clean": "When enabled, completing a full clean also resets the spot-clean schedule.",
-          "cleaning_schedule_mode": "Use existing day intervals or a fixed monthly calendar schedule.",
+          "cleaning_schedule_mode": "Choose independent Spot/Full schedules, a fixed monthly cycle, or one fixed alternating schedule.",
           "cleaning_day_of_month": "Monthly mode only. If this day does not exist, the month's final day is used.",
           "full_clean_every": "Monthly mode only. Make every Nth scheduled cleaning a full clean.",
           "cleaning_cycle_anchor": "Monthly mode only. This date's month is occurrence 1; the configured cleaning day is used.",
+          "alternating_cleaning_interval_days": "Alternating mode only. Exact number of calendar days between cleaning slots.",
+          "alternating_cleaning_anchor_date": "Alternating mode only. Fixed date of the first cleaning slot.",
+          "alternating_cleaning_anchor_type": "Alternating mode only. Cleaning type assigned to the anchor date.",
           "feeding_instructions": "Optional reference instructions shown for this care task.",
           "spot_clean_instructions": "Optional reference instructions shown for this care task.",
           "full_clean_instructions": "Optional reference instructions shown for this care task.",
@@ -185,6 +191,9 @@
           "due_today": "Due today",
           "overdue": "Overdue"
         }
+      },
+      "cleaning_status": {
+        "name": "Cleaning Status"
       },
       "food_removal_status": {
         "name": "Food Removal Status",
